@@ -114,7 +114,13 @@ export function seedTornadoIncident(ctx: Tx, activateOperations = true) {
   const c = control(ctx);
   const rings = warningAreaAround(c.originLat, c.originLng);
   const zone = ctx.db.zone.externalId.find(TORNADO_ZONE);
-  const zoneRow = { source: "stand-in", name: "Simulated tornado warning", event: "Tornado Warning", severity: "Extreme", rings: JSON.stringify(rings), active: true, at: ctx.timestamp };
+  const zoneRow = {
+    source: "stand-in", name: "Simulated tornado warning", event: "Tornado Warning", severity: "Extreme",
+    rings: JSON.stringify(rings), active: true, at: ctx.timestamp,
+    headline: "Simulated tornado warning near UTD", issuedAt: ctx.timestamp, expiresAt: undefined,
+    url: undefined, messageType: "Alert", kind: "simulated",
+    geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX",
+  };
   if (zone) ctx.db.zone.id.update({ ...zone, ...zoneRow });
   else ctx.db.zone.insert({ id: 0n, externalId: TORNADO_ZONE, ...zoneRow });
   let home = ctx.db.household.riderId.find(TORNADO_RIDER);

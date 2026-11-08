@@ -17,4 +17,5 @@ export { runReachStep } from "./reach";
 export { closeRoad, reopenRoad } from "./roads";
 export { replan } from "./dispatch";
 export { issueWarning, setStandIns, setHazardOrigin, endNight, seedStandInTown, seedTornadoDemo, tick } from "./loop";
-export { pollFeeds, startFeeds } from "./feeds";
+export { pollFeeds, startFeeds, replayWarning } from "./feeds";
+export { seedAssistanceDemo, advanceAssistanceDemo } from "./demos";
