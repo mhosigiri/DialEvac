@@ -4,6 +4,10 @@ Built for **HackUTD 2026** — addressing the **State Farm Prompt**, **Spacetime
 
 > **State Farm Challenge:** *When a major disaster affects thousands of people simultaneously, how might we use AI and technology to identify those with the most urgent needs, coordinate assistance, and ensure no one is overlooked?*
 
+> **SpacetimeDB Track:** *Build a real-time application that uses SpacetimeDB as its single source of truth, with reducers, scheduled procedures, and live client subscriptions in place of a separate database, message queue, and API layer.*
+
+> **Photon Track:** *Use Photon's communications platform (SIP trunking, SMS, and iMessage) to reach people at scale through voice and messaging.*
+
 When a catastrophe strikes—whether a Category 4 hurricane slamming the Gulf Coast, catastrophic flash flooding across Houston bayous, or an erratic wildfire sweeping through a residential canyon—emergency infrastructure fractures under extreme load. 911 phone queues jam within minutes, emergency dispatch rooms become overwhelmed by thousands of simultaneous calls, and the residents in greatest danger—the elderly, wheelchair users, bedbound individuals, and patients dependent on electric medical equipment—are left stranded.
 
 **DialEvac reverses the 911 paradigm.** Instead of waiting for panicked residents to reach overloaded emergency lines, DialEvac's autonomous multi-channel engine calls and texts every household in the hazard warning zone in parallel. Powered by **Photon SIP trunking & SMS**, **ElevenLabs Conversational AI**, **Anthropic Claude**, and **Google Gemini**, DialEvac conducts high-urgency conversational triage, extracts structured clinical and mobility constraints mid-call, routes emergency fleets through real street graphs using **OSMnx** and **OR-Tools**, and guarantees mathematical coverage where **zero residents are overlooked** using **SpacetimeDB's transactional execution engine**.
@@ -161,6 +165,8 @@ $$\text{Total In-Zone Homes} = \text{Leaving On Own} + \text{Helped} + \text{Hel
 - **Ensure No One Is Overlooked**: Transactional coverage accounting (`coverage.ts`) guarantees every single household in the disaster zone is tracked through an automated reach ladder. Unreachable residents are surfaced on physical door-check manifests.
 
 ### 2. SpacetimeDB Track
+*“Build a real-time application that uses SpacetimeDB as its single source of truth, with reducers, scheduled procedures, and live client subscriptions in place of a separate database, message queue, and API layer.”*
+
 SpacetimeDB serves as DialEvac's single source of truth and distributed execution engine, replacing disjoint databases, message queues, and API layers:
 - **Relational In-Memory Execution**: 35 public/private tables, 58+ reducers, 3 procedures, and 7 schedules run directly inside the module (`spacetimedb/`).
 - **Reactive Client Subscriptions**: The Dispatchers Portal and Driver App subscribe directly via WebSockets (`spacetimedb/react`). State updates—from phone transcripts to driver accepts—replicate to UI clients with sub-millisecond latency.
@@ -168,6 +174,8 @@ SpacetimeDB serves as DialEvac's single source of truth and distributed executio
 - **Scheduled Autonomous Procedures**: Background procedures (`sweepCoverage`, `replan`, `pollFeeds`) execute deterministically on the database engine.
 
 ### 3. Photon Track
+*“Use Photon's communications platform (SIP trunking, SMS, and iMessage) to reach people at scale through voice and messaging.”*
+
 Photon powers DialEvac's multi-channel communications backbone:
 - **Photon SIP Trunking**: Carries high-concurrency outbound telephony and inbound emergency lines directly connected to ElevenLabs Conversational AI over SIP.
 - **Photon REST API (iMessage / SMS)**: Dispatches high-volume parallel survey texts to all in-zone residents, tracks message delivery states, and streams status notifications directly to residents' mobile devices.
