@@ -21,6 +21,14 @@ export function isCleared(row: CaseRow) {
   return row.account === "helped" || row.account === "leaving_on_own";
 }
 
+// Cases that already have a driver still carry an action, so they must not block unassigned ones.
+export function nextCaseToAssign(cases: readonly CaseRow[]) {
+  const open = cases.filter(c => !isCleared(c) && c.action.kind !== "none");
+  const assignable = open.filter(c => c.action.kind === "dispatch" || c.action.kind === "approve");
+  const pool = assignable.length ? assignable : open;
+  return pool.find(c => c.urgency === "critical") ?? pool[0];
+}
+
 export function matchesQuery({ household: h }: CaseRow, query: string) {
   const q = query.trim().toLowerCase();
   return !q || `${h.name} ${h.address} ${h.phone}`.toLowerCase().includes(q);

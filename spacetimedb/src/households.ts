@@ -64,7 +64,7 @@ export const importRiders = spacetimedb.reducer({ riders: t.array(riderRow) }, (
   }
   const zone = ctx.db.zone.externalId.find("operator-zone");
   if (zone?.active) applyZone(ctx, JSON.parse(zone.rings));
-  sweepCoverage(ctx);
+  sweepCoverage(ctx, !!ctx.db.control.id.find(0)?.warningAt);
   audit(ctx, "riders", `imported ${riders.length} riders`);
 });
 
@@ -113,7 +113,7 @@ export const setZone = spacetimedb.reducer({ ringsJson: t.string() }, (ctx, { ri
   if (previous) ctx.db.zone.id.update({ ...previous, ...fields });
   else ctx.db.zone.insert({ id: 0n, externalId: "operator-zone", ...fields });
   const entered = applyZone(ctx, rings);
-  sweepCoverage(ctx);
+  sweepCoverage(ctx, !!ctx.db.control.id.find(0)?.warningAt);
   audit(ctx, "zone", `warning zone drawn: ${entered} homes entered`);
 });
 

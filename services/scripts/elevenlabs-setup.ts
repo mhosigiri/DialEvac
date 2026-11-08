@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import { env } from "../src/env";
 import { agentConfig, elevenlabs } from "../src/elevenlabs";
+import { saveToEnvFile as save } from "../src/env-file";
 
 // Sets ElevenLabs up for the voice service and records what it made in ../.env, so a rerun updates
 // instead of duplicating:
@@ -10,19 +10,6 @@ import { agentConfig, elevenlabs } from "../src/elevenlabs";
 //   3. the Photon number, imported as a SIP trunk that dials out through Photon and takes the calls
 //      Photon forwards to sips:sip.rtc.elevenlabs.io:5061 (the Photon profile's inbound destination).
 // Run: npm run setup:elevenlabs
-
-const ENV_PATH = new URL("../../.env", import.meta.url);
-
-function save(values: Record<string, string>) {
-  let text = readFileSync(ENV_PATH, "utf8");
-  for (const [key, value] of Object.entries(values)) {
-    process.env[key] = value;
-    const line = `${key}=${value}`;
-    const existing = new RegExp(`^${key}=.*$`, "m");
-    text = existing.test(text) ? text.replace(existing, line) : `${text.trimEnd()}\n${line}\n`;
-  }
-  writeFileSync(ENV_PATH, text);
-}
 
 async function webhook() {
   const url = `${env.voice.publicUrl()}/elevenlabs/webhook`;

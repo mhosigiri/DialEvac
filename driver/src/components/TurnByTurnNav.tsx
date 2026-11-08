@@ -4,6 +4,7 @@ import { parseRouteSteps, routeMatchesLocations, type RouteStep } from "../../..
 import { historicalReport } from "../../../shared/houston-history";
 import type { DriverStop } from "../lib/driver-state";
 import { formatDistance, formatDuration } from "../lib/driver-state";
+import { followRoute } from "../lib/route-progress";
 import { getManeuverIcon } from "../lib/navigation-icons";
 import { NavigationMap } from "./NavigationMap";
 import { Badge } from "../design-system/Badge";
@@ -30,7 +31,7 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
   onOpenComms,
   busy,
 }) => {
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [previewStepIndex, setPreviewStepIndex] = useState<number | null>(null);
   const [showAllSteps, setShowAllSteps] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const lastSpokenStep = useRef<number | null>(null);
@@ -42,10 +43,11 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
   const isRouteReady = route?.state === "ready" && route.assignmentId === stop.assignmentId && !!origin && routeMatchesLocations(route, origin, destination);
   const currentGuidance = isRouteReady && guidance?.assignmentId === stop.assignmentId && guidance.revision === route.revision ? guidance : undefined;
   const report = historicalReport(stop.riderId);
+  const routeKey = `${stop.assignmentId}:${route?.revision}`;
+  const lastProgress = useRef({ routeKey, meters: 0 });
   useEffect(() => {
-    setCurrentStepIndex(0);
     lastSpokenStep.current = null;
-  }, [stop.assignmentId, route?.revision]);
+  }, [routeKey]);
 
   // Parse steps from guidance
   let steps: RouteStep[] = [];
@@ -57,8 +59,22 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
     // Keep empty
   }
 
-  const currentStep = steps[currentStepIndex] || (steps.length > 0 ? steps[0] : undefined);
+  const progress = isRouteReady && steps.length > 0
+    ? followRoute([{ lat: route.originLat, lng: route.originLng }, ...route.points, destination], steps, origin, lastProgress.current.routeKey === routeKey ? lastProgress.current.meters : 0)
+    : undefined;
+  const liveStepIndex = progress?.stepIndex ?? 0;
+  const drivenMeters = progress?.drivenMeters ?? 0;
+  useEffect(() => {
+    lastProgress.current = { routeKey, meters: drivenMeters };
+  }, [routeKey, drivenMeters]);
+  // Reaching a new step ends any preview, so the screen never hides the turn the responder is at.
+  useEffect(() => setPreviewStepIndex(null), [routeKey, liveStepIndex]);
+
+  const currentStepIndex = previewStepIndex ?? liveStepIndex;
+  const previewStep = (index: number) => setPreviewStepIndex(index === liveStepIndex ? null : index);
+  const currentStep = steps[currentStepIndex];
   const nextStep = steps[currentStepIndex + 1];
+  const currentStepMeters = previewStepIndex === null ? progress?.metersLeftOnStep : currentStep?.distanceMeters;
 
   const showDirections = () => {
     mapSection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -68,21 +84,22 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
 
   // Spoken Voice Navigation (Web Speech API like Google Maps)
   useEffect(() => {
-    if (!voiceEnabled || !currentStep) return;
-    if (lastSpokenStep.current === currentStepIndex) return;
+    const liveStep = steps[liveStepIndex];
+    if (!voiceEnabled || !liveStep) return;
+    if (lastSpokenStep.current === liveStepIndex) return;
 
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel(); // Stop prior speech
-      const text = currentStep.distanceMeters
-        ? `${currentStep.instruction}, for ${formatDistance(currentStep.distanceMeters)}.`
-        : `${currentStep.instruction}.`;
+      const text = progress?.metersLeftOnStep
+        ? `${liveStep.instruction}, for ${formatDistance(progress.metersLeftOnStep)}.`
+        : `${liveStep.instruction}.`;
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
       window.speechSynthesis.speak(utterance);
-      lastSpokenStep.current = currentStepIndex;
+      lastSpokenStep.current = liveStepIndex;
     }
-  }, [currentStepIndex, voiceEnabled, currentStep]);
+  }, [liveStepIndex, voiceEnabled, routeKey, steps.length]);
 
   // Muting or leaving the screen must silence a prompt already being spoken.
   useEffect(() => () => window.speechSynthesis?.cancel(), [voiceEnabled]);
@@ -103,9 +120,9 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
             <div className="text-xl font-extrabold tracking-tight text-white leading-tight">
               {currentStep ? currentStep.instruction : `Proceed towards ${stop.address}`}
             </div>
-            {!!currentStep?.distanceMeters && (
+            {!!currentStepMeters && (
               <div className="text-sm font-semibold text-[#a0dfbf] mt-1">
-                for {formatDistance(currentStep.distanceMeters)}
+                for {formatDistance(currentStepMeters)}
               </div>
             )}
           </div>
@@ -130,7 +147,7 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
           <div className="pt-2 border-t border-[#3dd68c]/25 flex items-center gap-2 text-xs text-[#a0dfbf]">
             <span className="font-semibold text-white uppercase text-[10px] tracking-wider">Then</span>
             <span className="truncate">
-              {nextStep.instruction} in {formatDistance(currentStep?.distanceMeters)}
+              {nextStep.instruction} in {formatDistance(currentStepMeters)}
             </span>
           </div>
         )}
@@ -197,18 +214,28 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
             <button
               type="button"
               disabled={currentStepIndex === 0}
-              onClick={() => setCurrentStepIndex((i) => Math.max(0, i - 1))}
+              onClick={() => previewStep(currentStepIndex - 1)}
               className="flex-1 py-2 rounded-xl bg-[#1a1a1f] text-xs font-bold text-[#c2c2c9] disabled:opacity-30 border border-[#26262c]"
             >
               ← Prior Turn
             </button>
-            <span className="text-xs text-[#a3a3aa] font-mono px-2">
-              Turn {currentStepIndex + 1}
-            </span>
+            {previewStepIndex === null ? (
+              <span className="text-xs text-[#a3a3aa] font-mono px-2">
+                Turn {currentStepIndex + 1}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => previewStep(liveStepIndex)}
+                className="text-xs text-[#8fb0ff] font-bold px-2"
+              >
+                Back to current turn
+              </button>
+            )}
             <button
               type="button"
               disabled={currentStepIndex >= steps.length - 1}
-              onClick={() => setCurrentStepIndex((i) => Math.min(steps.length - 1, i + 1))}
+              onClick={() => previewStep(currentStepIndex + 1)}
               className="flex-1 py-2 rounded-xl bg-[#1a1a1f] text-xs font-bold text-[#c2c2c9] disabled:opacity-30 border border-[#26262c]"
             >
               Next Turn →
@@ -253,7 +280,7 @@ export const TurnByTurnNav: React.FC<TurnByTurnNavProps> = ({
               {steps.map((step, idx) => (
                 <div
                   key={idx}
-                  onClick={() => setCurrentStepIndex(idx)}
+                  onClick={() => previewStep(idx)}
                   className={`p-3 text-xs flex items-center gap-3 cursor-pointer transition-colors ${
                     idx === currentStepIndex
                       ? "bg-[#8fb0ff]/10 text-white font-semibold"

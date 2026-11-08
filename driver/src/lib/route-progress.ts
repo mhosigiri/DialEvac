@@ -17,11 +17,10 @@ function metersAlong(path: readonly Point[], point: Point, expectedMeters: numbe
     return hit;
   });
   const limit = Math.min(...hits.map((hit) => hit.offMeters)) + SAME_ROAD_METERS;
+  const near = hits.filter((hit) => hit.offMeters <= limit);
   const passes: typeof hits = [];
-  hits.forEach((hit, i) => {
-    if (hit.offMeters > limit) return;
-    const continuesPass = i > 0 && hits[i - 1].offMeters <= limit;
-    if (!continuesPass) passes.push(hit);
+  near.forEach((hit, i) => {
+    if (!i || hit.meters - near[i - 1].meters > 2 * SAME_ROAD_METERS) passes.push(hit);
     else if (hit.offMeters < passes[passes.length - 1].offMeters) passes[passes.length - 1] = hit;
   });
   return passes.reduce((best, pass) => (Math.abs(pass.meters - expectedMeters) <= Math.abs(best.meters - expectedMeters) ? pass : best)).meters;
@@ -32,7 +31,8 @@ export function followRoute(path: readonly Point[], steps: readonly RouteStep[],
   const drivenMeters = metersAlong(path, position, previousMeters);
   const starts: number[] = [];
   steps.forEach((step, i) => starts.push(metersAlong(path, step, i ? starts[i - 1] + steps[i - 1].distanceMeters : 0)));
-  const stepIndex = Math.max(0, starts.reduce((last, start, i) => (start - TURN_LEAD_METERS <= drivenMeters ? i : last), 0));
-  const nextStart = starts[stepIndex + 1];
-  return { drivenMeters, stepIndex, metersToNextStep: nextStart === undefined ? undefined : Math.max(0, nextStart - drivenMeters) };
+  // The lead stays under half of the road before the turn, so a short road still gets its own instruction.
+  const stepIndex = starts.reduce((last, start, i) => (i && start - Math.min(TURN_LEAD_METERS, steps[i - 1].distanceMeters / 2) <= drivenMeters ? i : last), 0);
+  const stepMeters = steps[stepIndex]?.distanceMeters ?? 0;
+  return { drivenMeters, stepIndex, metersLeftOnStep: Math.max(0, stepMeters - Math.max(0, drivenMeters - starts[stepIndex])) };
 }

@@ -1,0 +1,13 @@
+# OSMnx route service. Keep it on a private network: it has no authentication, and any request can start an Overpass download.
+#   docker build -f dispatch/Dockerfile.router -t dialevac-router dispatch
+FROM python:3.12-slim
+RUN pip install --no-cache-dir uv==0.8.22
+WORKDIR /app
+COPY pyproject.toml uv.lock routing.py routing_server.py ./
+RUN uv sync --frozen --no-dev --no-cache
+RUN useradd --create-home router && mkdir -p /data/osmnx && chown -R router /data/osmnx
+ENV OSMNX_HOST=0.0.0.0 OSMNX_PORT=8800 OSMNX_CACHE_DIR=/data/osmnx PYTHONUNBUFFERED=1
+USER router
+VOLUME /data/osmnx
+EXPOSE 8800
+CMD [".venv/bin/python", "routing_server.py"]

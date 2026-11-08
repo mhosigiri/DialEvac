@@ -4,6 +4,7 @@ import { SPEECH, guardResidentTurn } from "../../spacetimedb/src/domain/honesty"
 import { assessmentToken } from "./live-assessment";
 import { voiceGuardContext } from "./voice-guard";
 import { withVoiceSafety } from "./voice-safety";
+import { catastrophePrompt } from "../../shared/catastrophe-triage";
 
 // ElevenLabs runs the conversation on every call; Photon is the line it dials out on (SIP trunk).
 // The agent sorts what a resident says into the keypad's four choices, so a spoken answer lands in
@@ -19,6 +20,8 @@ export type CallKind = "survey" | "callback";
 export type CallVariables = { kind: CallKind; call_id: string; callback_id: string; name: string; household_id?: string };
 
 export async function outboundCall(to: string, variables: CallVariables, firstMessage?: string) {
+  const activeAgent = await elevenlabs().conversationalAi.agents.get(env.elevenlabs.agentId(), {}, { timeoutInSeconds: 10, maxRetries: 0 });
+  assertGuardedAgent(activeAgent, env.voice.publicUrl());
   // A greeting can play while the phone is still connecting. Keep it neutral; all dispatch facts
   // are resolved afresh by the blocking turn endpoint after the resident responds.
   const greeting = guardResidentTurn(variables.kind === "callback" ? SPEECH.callbackFirst : firstMessage === SPEECH.demoFirst ? SPEECH.demoFirst : SPEECH.first).text;
@@ -119,7 +122,7 @@ export function agentConfig(webhookId: string) {
         language: "en",
         dynamicVariables: { dynamicVariablePlaceholders: { kind: "survey", call_id: "", callback_id: "", name: "there" } },
         prompt: {
-          prompt: withVoiceSafety(PROMPT),
+          prompt: withVoiceSafety(`${PROMPT}\n\n${catastrophePrompt()}`),
           builtInTools: {
             endCall: { type: "system", name: "end_call", description: "", params: { systemToolType: "end_call" } },
             voicemailDetection: {
@@ -155,12 +158,32 @@ export function agentConfig(webhookId: string) {
 export function guardedAgentConfig(base: ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost, publicUrl: string, secretId: string) {
   const url = new URL(publicUrl);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !secretId.trim()) throw new Error("A public HTTPS guard URL and workspace secret ID are required");
+  if (!singleAgentWorkflow(base.workflow)) throw new Error("Configure every workflow node before enabling the guard; this configuration supports a single agent");
   return { ...base,
     conversationConfig: { ...base.conversationConfig, agent: { ...base.conversationConfig?.agent, firstMessage: SPEECH.first, maxConversationDurationMessage: SPEECH.goodbye,
       prompt: { ...base.conversationConfig?.agent?.prompt, llm: "custom-llm", backupLlmConfig: { preference: "disabled" },
+        builtInTools: { ...base.conversationConfig?.agent?.prompt?.builtInTools, voicemailDetection: { type: "system", name: "voicemail_detection", description: "Detect voicemail", params: { systemToolType: "voicemail_detection", voicemailMessage: SPEECH.voicemail } } },
         customLlm: { url: `${publicUrl.replace(/\/$/, "")}/voice/guard/v1`, apiType: "chat_completions", requestHeaders: { "x-voice-guard-token": { secretId } } } },
     } },
     platformSettings: { ...base.platformSettings, overrides: { ...base.platformSettings?.overrides, customLlmExtraBody: true,
       conversationConfigOverride: { ...base.platformSettings?.overrides?.conversationConfigOverride, agent: { ...base.platformSettings?.overrides?.conversationConfigOverride?.agent, firstMessage: true } } } },
   } satisfies ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost;
+}
+
+export function assertGuardedAgent(agent: { workflow?: { nodes?: object }; conversationConfig?: { agent?: { firstMessage?: string; maxConversationDurationMessage?: string; prompt?: { llm?: string; customLlm?: { url: string; requestHeaders?: Record<string, unknown> }; backupLlmConfig?: { preference: string }; builtInTools?: { voicemailDetection?: { params?: unknown } } } } } }, publicUrl: string) {
+  const config = agent.conversationConfig?.agent, prompt = config?.prompt;
+  const expected = `${publicUrl.replace(/\/$/, "")}/voice/guard/v1`;
+  const header = prompt?.customLlm?.requestHeaders?.["x-voice-guard-token"] as { secretId?: string } | undefined;
+  const voicemail = prompt?.builtInTools?.voicemailDetection?.params as { voicemailMessage?: string } | undefined;
+  if (!singleAgentWorkflow(agent.workflow) || prompt?.llm !== "custom-llm" || prompt.customLlm?.url !== expected || prompt.backupLlmConfig?.preference !== "disabled" || !header?.secretId || voicemail?.voicemailMessage !== SPEECH.voicemail ||
+    ![SPEECH.first, SPEECH.demoFirst].includes(config?.firstMessage as typeof SPEECH.first) || config?.maxConversationDurationMessage !== SPEECH.goodbye) {
+    throw new Error("The agent is not configured for the blocking honesty guard. Prepare and apply the guarded agent configuration before dialing.");
+  }
+}
+
+function singleAgentWorkflow(value: unknown) {
+  if (!value) return true;
+  const workflow = value as { nodes?: Record<string, { type?: string }>; edges?: object };
+  const nodes = Object.values(workflow.nodes ?? {});
+  return nodes.length <= 1 && nodes.every(node => node.type === "start") && !Object.keys(workflow.edges ?? {}).length;
 }

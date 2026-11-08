@@ -1,5 +1,6 @@
 import type { RequestStatus } from "./status";
 import { SURVEY_ASK, SURVEY_INTRO } from "./script";
+import { CATASTROPHES, TRIAGE } from "../../../shared/catastrophe-triage";
 
 // What the agent may say about a ride, chosen by the request's status. Code picks these lines; a
 // model never writes a promise. Every channel (voice, Photon messages) reads them from here.
@@ -12,22 +13,27 @@ export function statusLine(status: RequestStatus, ride: Ride | null): string {
   switch (status) {
     case "received":
     case "approved":
-      return `You're on the rescue list as high priority. No driver has accepted yet. I'll contact you the moment one does. ${SAFETY}`;
+      return `Your assistance request is recorded. No driver has accepted yet. ${SAFETY}`;
     case "driver_accepted":
     case "en_route":
-      if (!ride) return statusLine("received", null);
-      return `A ${ride.vehicleKind} with a ${crewWords(ride.crew)} crew is ${ride.etaMinutes} minutes away. The driver's name is ${ride.driverName}. I'll contact you again if anything changes.`;
+      if (!ride || !Number.isFinite(ride.etaMinutes) || ride.etaMinutes < 0) return "Your assistance request is recorded. I cannot verify the current driver details or arrival estimate.";
+      return `A ${label(ride.vehicleKind, "response vehicle")} with a ${crewWords(ride.crew)} crew ${status === "en_route" ? "is recorded as en route" : "has accepted your request"}. The driver's name is ${label(ride.driverName, "the assigned responder")}. The current estimated arrival is about ${ride.etaMinutes} minutes; this estimate can change.`;
     case "reassigning":
-      return `Your driver can no longer reach you. You're still at the top of the list. I'll contact you the moment a new driver accepts. ${SAFETY}`;
+      return `Your previous assignment is no longer active. A replacement driver has not accepted yet. ${SAFETY}`;
     case "arrived":
       return "Your driver has arrived.";
     case "closed":
-      return "Your pickup is complete.";
+      return "This assistance request is closed.";
   }
 }
 
 function crewWords(crew: number) {
   return crew >= 2 ? "two-person" : "one-person";
+}
+
+function label(value: string, fallback: string) {
+  const text = value.replace(/[^\p{L}\p{N} '-]/gu, "").trim().slice(0, 80);
+  return text && !soundsLikePromise(text) ? text : fallback;
 }
 
 // Free text a model wrote may acknowledge the resident, never promise help.
@@ -52,11 +58,19 @@ export const SPEECH = {
   goodbye: "Thank you for speaking with the response line. Goodbye.",
   voicemail: "This is the automated emergency response line. Please call the response line when you can.",
   transfer: "I am attempting to connect you to a dispatcher. A connection is not yet confirmed.",
+  policyUnknown: "I don't know. Please confirm that with the human dispatcher.",
+  emergency: "This is an automated outreach assistant, not 911. Please call 911 now for an immediate emergency.",
+  medicalUnknown: "I cannot provide medication or treatment instructions. Please ask a qualified medical professional.",
+  floodwater: "Do not drive or walk through floodwater. I cannot confirm a safe route for you.",
+  persistenceUnknown: "I heard your request, but I cannot confirm it has been saved yet.",
+  interpreter: "I can only assist in English. Please ask for a human interpreter; I cannot confirm an interpreter connection.",
+  refusal: "I understand that you do not want to continue the survey. Goodbye.",
 } as const;
 
 export function approvedResidentPhrases(state?: ResidentSpeechState, channel: "voice" | "message" = "voice") {
-  const allowed: string[] = [SURVEY_ASK];
+  const allowed: string[] = [SURVEY_ASK, SPEECH.policyUnknown, SPEECH.emergency, SPEECH.medicalUnknown, SPEECH.floodwater];
   if (channel === "voice") allowed.push(SPEECH.first, SPEECH.demoFirst, SPEECH.callbackFirst, SPEECH.people, SPEECH.oxygen, SPEECH.mobility, SPEECH.clarify, SPEECH.unverified, SPEECH.goodbye, SPEECH.voicemail);
+  if (channel === "voice") allowed.push(SPEECH.persistenceUnknown, SPEECH.interpreter, SPEECH.refusal, "What danger are you experiencing at your home?", ...CATASTROPHES.flatMap(category => TRIAGE[category].questions));
   if (state?.warningActive) allowed.push(`${SURVEY_INTRO} ${SURVEY_ASK}`);
   if (state?.canLeave === true) allowed.push(SPEECH.leaving);
   if (channel === "voice" && state?.assessmentRecorded) allowed.push(SPEECH.recorded);

@@ -1,7 +1,8 @@
 import React from "react";
-import { LayoutGrid, Ambulance, Map as MapIcon, KeyRound, Columns3, PhoneCall, RadioTower } from "lucide-react";
+import { LayoutGrid, Ambulance, Map as MapIcon, Columns3, PhoneCall, RadioTower, Radio } from "lucide-react";
+import logoImg from "../assets/logo.png";
 
-export type PortalView = "operations" | "queue" | "fleet" | "map" | "calls" | "incident";
+export type PortalView = "operations" | "queue" | "fleet" | "map" | "calls" | "incident" | "outreach";
 
 interface SidebarProps {
   view: PortalView;
@@ -12,6 +13,7 @@ interface SidebarProps {
 const ITEMS: { id: PortalView; label: string; icon: React.ReactNode }[] = [
   { id: "operations", label: "Overview", icon: <LayoutGrid style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "queue", label: "Queue", icon: <Columns3 style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
+  { id: "outreach", label: "Outreach", icon: <Radio style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "calls", label: "Calls", icon: <PhoneCall style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "fleet", label: "Fleet", icon: <Ambulance style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "map", label: "Map", icon: <MapIcon style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
@@ -26,11 +28,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, onChange, connected }) =
     style={{ width: 112, margin: 12, background: "#0c0c0e", border: "1px solid #26262c", borderRadius: 20 }}
   >
     <div
-      className="flex items-center justify-center eoc-rail-logo"
-      style={{ width: 44, height: 44, borderRadius: 14, background: "#ffffff", color: "#0a0a0c" }}
-      title="Emergency Dispatch"
+      className="flex items-center justify-center overflow-hidden eoc-rail-logo"
+      style={{ width: 44, height: 44, borderRadius: 14, background: "#ffffff", padding: 2 }}
+      title="DialEvac Emergency Dispatch"
     >
-      <KeyRound style={{ width: 22, height: 22 }} strokeWidth={2} />
+      <img
+        src={logoImg}
+        alt="DialEvac"
+        style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 12 }}
+      />
     </div>
     <div
       className="text-center font-semibold eoc-rail-wordmark"
@@ -85,3 +91,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, onChange, connected }) =
     </div>
   </nav>
 );
+
+export function portalViewFromSearch(search: string): PortalView {
+  const params = new URLSearchParams(search);
+  if (params.has("demo")) return "outreach";
+  return ITEMS.find(item => item.id === params.get("view"))?.id ?? "operations";
+}

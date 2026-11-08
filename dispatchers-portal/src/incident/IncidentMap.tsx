@@ -16,22 +16,20 @@ export function IncidentMap({ mode, vertices, closures, homes, onPoint }: {
   const mapOrigin = new URL(url).origin;
   const send = () => {
     const c = current.current;
+    const cases = c.homes.filter(validIncidentPoint).map(h => ({ lat: h.lat, lng: h.lng, id: String(h.id), label: h.name, severity: "medium" }));
+    frame.current?.contentWindow?.postMessage({ type: "dialevac:cases", cases }, mapOrigin);
     frame.current?.contentWindow?.postMessage({ type: "dialevac:incident-editor", mode: c.mode, vertices: c.vertices, closures: c.closures }, mapOrigin);
   };
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== mapOrigin) return;
-      if (event.data?.type === "dialevac:ready") {
-        const cases = current.current.homes.filter(validIncidentPoint).map(h => ({ ...h, id: String(h.id), label: h.name, severity: "medium" }));
-        frame.current?.contentWindow?.postMessage({ type: "dialevac:cases", cases }, mapOrigin);
-        send();
-      }
+      if (event.data?.type === "dialevac:ready") send();
       if (event.data?.type === "dialevac:incident-point" && event.data.mode === current.current.mode && validIncidentPoint(event.data.point)) current.current.onPoint(current.current.mode, event.data.point);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [mapOrigin]);
-  useEffect(send, [mapOrigin, mode, vertices, closures]);
+  useEffect(send, [mapOrigin, mode, vertices, closures, homes]);
   return <div style={{ position: "relative", height: 500, minHeight: 360, border: "1px solid #3a465a", borderRadius: 14, overflow: "hidden" }}>
     <iframe ref={frame} src={url} onLoad={send} title="Incident boundary and road closure editor" style={{ width: "100%", height: "100%", border: 0 }} />
     <div role="status" style={{ position: "absolute", top: 12, left: 12, right: 48, pointerEvents: "none", padding: "8px 12px", borderRadius: 8, background: "rgba(13,20,33,.92)", color: "#f5f5f6", fontSize: 12 }}>

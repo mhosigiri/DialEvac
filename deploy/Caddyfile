@@ -1,0 +1,26 @@
+{$SITE_ADDRESS::8080} {
+	encode gzip
+
+	@inbox path /elevenlabs/* /voice/* /capabilities /ready
+	handle @inbox {
+		reverse_proxy {$INBOX_UPSTREAM:inbox:8080}
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		# Only this site may embed the map, whose messages to its parent use target origin '*'.
+		header Content-Security-Policy "frame-ancestors 'self'"
+		header X-Content-Type-Options nosniff
+
+		# Vite hashes these filenames. The map and every index.html keep stable names.
+		@hashed path /assets/* /driver/assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header ?Cache-Control "no-cache"
+
+		root * /srv
+		file_server
+	}
+}

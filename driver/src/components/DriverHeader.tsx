@@ -1,6 +1,8 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import type { Vehicle } from "../module_bindings/types";
 import { Badge } from "../design-system/Badge";
+import logoImg from "../assets/logo.png";
 
 interface DriverHeaderProps {
   vehicles: readonly Vehicle[];
@@ -26,8 +28,8 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
     <header className="sticky top-0 z-30 bg-[#060607]/95 backdrop-blur-md border-b border-[#26262c] px-4 py-3">
       <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 flex-none rounded-lg bg-gradient-to-br from-[#8fb0ff] to-[#4070e0] flex items-center justify-center font-bold text-black text-sm tracking-tighter shadow-md">
-            DE
+          <div className="w-8 h-8 flex-none rounded-lg bg-white overflow-hidden flex items-center justify-center shadow-md p-0.5">
+            <img src={logoImg} alt="DialEvac" className="w-full h-full object-contain rounded-md" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -83,8 +85,8 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
         </div>
       </div>
 
-      {/* Vehicle Picker Modal / Dropdown */}
-      {showVehiclePicker && (
+      {/* The header's backdrop-blur traps fixed children inside the header, so the modal renders on body. */}
+      {showVehiclePicker && createPortal(
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="w-full max-w-md bg-[#131316] border border-[#26262c] rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between mb-4">
@@ -154,7 +156,8 @@ export const DriverHeader: React.FC<DriverHeaderProps> = ({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </header>
   );

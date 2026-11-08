@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { tables, reducers } from "./module_bindings";
 import { useTable, useReducer, useSpacetimeDB } from "spacetimedb/react";
 import { Header } from "./components/Header";
-import { Sidebar, type PortalView } from "./components/Sidebar";
+import { Sidebar, portalViewFromSearch, type PortalView } from "./components/Sidebar";
 import { IncidentMapFrame, type MapCase } from "./components/IncidentMapFrame";
 import { EmergencyFeed, type FeedTab } from "./components/EmergencyFeed";
 import { QueueFilterBar, QueuePanel } from "./components/QueuePanel";
@@ -14,10 +14,11 @@ import { DesignSystemShowcase, Notice } from "./design-system";
 import { buildCases } from "./lib/cases";
 import { NotAuthorizedBanner } from "./components/OperatorIdentity";
 import { failureMessage, isNotAuthorized, type Command } from "./commands";
-import { ALL_CASES, CRITICAL_CASES, casesCsv, downloadCsv, isCleared, loadMyCases, matchesQuery, queueFilters, saveMyCases, type QueueScope } from "./queue";
+import { ALL_CASES, CRITICAL_CASES, casesCsv, downloadCsv, isCleared, loadMyCases, matchesQuery, nextCaseToAssign, queueFilters, saveMyCases, type QueueScope } from "./queue";
 import type { CaseRow } from "./lib/cases";
 import { routeMatchesLocations } from "../../shared/route-guidance";
 import { IncidentConsole } from "./incident/IncidentConsole";
+import { OutreachConsole } from "./outreach/OutreachConsole";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -56,7 +57,7 @@ function Portal() {
 
   // Held by id so an open case keeps following its live rows, which a call updates as it runs.
   const [openCaseId, setOpenCaseId] = useState<bigint | undefined>();
-  const [view, setView] = useState<PortalView>("operations");
+  const [view, setView] = useState<PortalView>(() => portalViewFromSearch(window.location.search));
   const [feedTab, setFeedTab] = useState<FeedTab>("all");
   const [query, setQuery] = useState("");
   const [busyHouseholdId, setBusyHouseholdId] = useState<bigint | undefined>();
@@ -156,9 +157,7 @@ function Portal() {
   };
 
   const handleAssignNext = () => {
-    const next =
-      cases.find((c) => !isCleared(c) && c.urgency === "critical" && c.action.kind !== "none") ??
-      cases.find((c) => !isCleared(c) && c.action.kind !== "none");
+    const next = nextCaseToAssign(cases);
     if (!next) return;
     if (next.urgency === "critical") setFeedTab("critical");
     showQueueFilter(next.urgency === "critical" ? CRITICAL_CASES : ALL_CASES);
@@ -218,7 +217,13 @@ function Portal() {
       className="flex h-screen overflow-hidden"
       style={{ background: "#060607", color: "#f5f5f6" }}
     >
-      <Sidebar view={view} onChange={setView} connected={connected} />
+      <Sidebar view={view} onChange={next => {
+        setView(next);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("demo");
+        url.searchParams.set("view", next);
+        window.history.replaceState(null, "", url);
+      }} connected={connected} />
 
       {view === "queue" && (
         <QueuePanel
@@ -253,7 +258,7 @@ function Portal() {
 
         {notAuthorized && <NotAuthorizedBanner identity={identity} onDismiss={() => setNotAuthorized(false)} />}
 
-        <Header
+        {view !== "outreach" && <Header
           identity={identity}
           zone={incidentZone}
           coverage={coverage}
@@ -277,9 +282,10 @@ function Portal() {
           onShowFleet={() => setView("fleet")}
           overview={view === "operations"}
           queue={view === "queue"}
-        />
+        />}
 
         <main className="flex-1 px-6 pb-8" style={{ minHeight: 0 }}>
+          {view === "outreach" && <OutreachConsole />}
           {view === "incident" && <IncidentConsole onError={error => { if (isNotAuthorized(error)) setNotAuthorized(true); else setFailure(failureMessage(error)); }} />}
           {view === "calls" && <CallInbox records={callRecords} analyses={callAnalyses} households={households} onOpenCase={setOpenCaseId} disabled={!connected}
             onRetry={providerId => { void retryCallAnalysis({ providerId }).catch(error => { if (isNotAuthorized(error)) setNotAuthorized(true); else setFailure(failureMessage(error)); }); }} />}

@@ -3,7 +3,7 @@ import { SPACETIME_DATABASE, SPACETIME_URI } from "../../shared/spacetime";
 
 function required(name: string) {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set. Add it to .env (see .env.example).`);
+  if (!value) throw new Error(`${name} is not set. Set it in the environment or .env (see .env.example).`);
   return value;
 }
 
@@ -38,7 +38,8 @@ export const env = {
     },
   },
   voice: {
-    port: Number(optional("VOICE_PORT", "8080")),
+    // Container hosts assign PORT and route traffic only to it.
+    port: Number(process.env.PORT || optional("VOICE_PORT", "8080")),
     // Calls started per second, most urgent first.
     callsPerSecond: Number(optional("VOICE_CALLS_PER_SECOND", "1")),
     publicUrl: () => required("VOICE_PUBLIC_URL").replace(/\/$/, ""),

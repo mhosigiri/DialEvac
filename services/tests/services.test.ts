@@ -22,7 +22,7 @@ function fakeDb(phone: string) {
   return { db, calls };
 }
 
-const row = { id: 7n, householdId: 1n, direction: "out", state: "queued", body: "hello" };
+const row = { id: 7n, householdId: 1n, direction: "out", state: "queued", body: "Reply 1 if you can leave on your own, 2 if you need a ride, 3 if you need a wheelchair-accessible ride, 4 if someone needs to be lifted out." };
 
 test("an allowlisted number is claimed, sent once per row and marked sent", async () => {
   const { db, calls } = fakeDb("+14692001234");

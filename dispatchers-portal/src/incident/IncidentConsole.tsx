@@ -39,7 +39,7 @@ export function IncidentConsole({ onError }: { onError: (error: unknown) => void
           <Button variant="secondary" disabled={!vertices.length} onClick={() => setVertices(v => v.slice(0, -1))}>Undo corner</Button>
           <Button variant="secondary" disabled={!vertices.length} onClick={() => setVertices([])}>Clear draft</Button>
         </div>
-        <IncidentMap mode={mode} vertices={vertices} closures={activeRoads} homes={homes.filter(h => h.inZone)} onPoint={onPoint} />
+        <IncidentMap mode={mode} vertices={vertices} closures={activeRoads} homes={homes.some(h => h.inZone) ? homes.filter(h => h.inZone) : homes} onPoint={onPoint} />
         <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 12 }}>
           <Button disabled={disabled || !boundary.rings} onClick={() => void run("Save outreach area", async () => { await setZone({ ringsJson: JSON.stringify(boundary.rings) }); setMode("none"); })}>Save outreach area</Button>
           <span style={{ fontSize: 12 }}>{boundary.rings ? `${inDraft} riders inside the draft boundary` : vertices.length ? boundary.error : "Add at least three boundary corners"}</span>
