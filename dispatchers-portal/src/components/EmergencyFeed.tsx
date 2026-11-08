@@ -175,7 +175,8 @@ function CaseCard({
   const callLabel = call && OPEN_CALL_LABEL[call.phase];
 
   const peopleWords = `${people} ${people === 1 ? "occupant" : "occupants"}`;
-  const subtitleLine = [household.address, household.phone, peopleWords].join(" · ");
+  const pickup = Number.isFinite(household.lat) && Number.isFinite(household.lng) ? `Pickup ${household.lat.toFixed(5)}, ${household.lng.toFixed(5)}` : "Pickup coordinates unavailable";
+  const subtitleLine = [household.address, pickup, household.phone, peopleWords].join(" · ");
 
   const initials = (name: string) =>
     name

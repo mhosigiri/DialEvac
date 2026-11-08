@@ -44,6 +44,7 @@ function restyle(after) {
     try { map.setProjection(st.projection); } catch (_) { /* next styledata completes it */ }
     state.ready = true;
     after?.();
+    window.dispatchEvent(new CustomEvent('dialevac:map-ready'));
   };
   if (map.isStyleLoaded()) ready(); else map.once('styledata', ready);
 }
@@ -94,7 +95,7 @@ function boot() {
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
   map.on('styleimagemissing', e => { if (!map.hasImage(e.id) && window.makeIcon) { const m = makeIcon(e.id); if (m) map.addImage(e.id, m.img, m.opts); } });
   map.on('error', e => console.error('map error', e.error && e.error.message));
-  map.once('load', () => { state.ready = true; });
+  map.once('load', () => { state.ready = true; window.dispatchEvent(new CustomEvent('dialevac:map-ready')); });
   renderHazards();
   setMotion(state.motion);
   setInterval(() => applyMode(false), 60000); // re-check the sun every minute

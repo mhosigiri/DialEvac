@@ -19,7 +19,11 @@
   let route = null;
   let framedRoute;
   let routeCoveredRight = 0;
+  let selection = null;
+  let responder = null;
+  let responderMarker;
   let zone = EMPTY;
+  let readyVersion;
 
   function validSelection(s) {
     return !!s && typeof s.label === 'string' && Number.isFinite(s.lat) && Number.isFinite(s.lng) && Math.abs(s.lat) <= 90 && Math.abs(s.lng) <= 180;
@@ -39,9 +43,24 @@
       pin.append(pinLabel, document.createElement('i'));
       marker = new maplibregl.Marker({ element: pin, anchor: 'bottom' });
     }
-    pinLabel.textContent = label;
+    pinLabel.textContent = `${label} · ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     marker.setLngLat([lng, lat]).addTo(map);
-    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), SELECTED_ZOOM), duration: window.__dialevacState?.motion ? 900 : 0 });
+    if (route) { framedRoute = undefined; frameRoute(map); }
+    else map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), SELECTED_ZOOM), duration: window.__dialevacState?.motion ? 900 : 0 });
+  }
+
+  function showResponder(map) {
+    if (!responder) { responderMarker?.remove(); responderMarker = undefined; return; }
+    if (!responderMarker) {
+      const pin = document.createElement('div');
+      pin.className = 'embed-pin embed-unit';
+      const label = document.createElement('span');
+      pin.append(label, document.createElement('i'));
+      responderMarker = new maplibregl.Marker({ element: pin, anchor: 'bottom' });
+      responderMarker.label = label;
+    }
+    responderMarker.label.textContent = `${responder.label} · ${responder.lat.toFixed(5)}, ${responder.lng.toFixed(5)}`;
+    responderMarker.setLngLat([responder.lng, responder.lat]).addTo(map);
   }
 
   const casesGeoJson = () => ({
@@ -94,7 +113,8 @@
     const key = route.map(p => `${p.lat},${p.lng}`).join();
     if (key === framedRoute) return;
     framedRoute = key;
-    const lats = route.map(p => p.lat), lngs = route.map(p => p.lng);
+    const all = [...route, ...(responder ? [responder] : []), ...(selection ? [selection] : [])];
+    const lats = all.map(p => p.lat), lngs = all.map(p => p.lng);
     map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: { top: 64, bottom: 64, left: 64, right: 64 + routeCoveredRight }, maxZoom: 15, duration: window.__dialevacState?.motion ? 900 : 0 });
   }
 
@@ -127,6 +147,7 @@
     map.getSource(ZONE_SOURCE).setData(zone);
     map.getSource(ROUTE_SOURCE).setData(routeGeoJson());
     map.getSource(CASES_SOURCE).setData(casesGeoJson());
+    showResponder(map);
     frameCases(map);
     frameRoute(map);
   }
@@ -143,20 +164,22 @@
   }
 
   window.addEventListener('message', e => {
-    if (e.source !== window.parent || !window.__map) return;
+    if (e.source !== window.parent) return;
     if (e.data?.type === 'dialevac:cases' && Array.isArray(e.data.cases)) {
       cases = e.data.cases.filter(validCase);
       render();
     } else if (e.data?.type === 'dialevac:route') {
       route = validRoute(e.data.points) ? e.data.points : null;
+      responder = validSelection(e.data.origin) ? e.data.origin : null;
       routeCoveredRight = Number.isFinite(e.data.coveredRight) ? Math.max(0, e.data.coveredRight) : 0;
       render();
     } else if (e.data?.type === 'dialevac:zone') {
       zone = typeof e.data.geometry === 'string' ? parseZone(e.data.geometry) : EMPTY;
       render();
     } else if (e.data?.type === 'dialevac:select') {
-      if (e.data.selection === null) clearSelection();
-      else if (validSelection(e.data.selection)) showSelection(e.data.selection);
+      selection = validSelection(e.data.selection) ? e.data.selection : null;
+      if (!selection) clearSelection();
+      else if (window.__map && window.__dialevacState?.ready) showSelection(selection);
     } else if (e.data?.type === 'dialevac:refit' && Number.isFinite(e.data.width) && Number.isFinite(e.data.height)) {
       whenFrameIs(e.data.width, e.data.height, refit);
     }
@@ -175,13 +198,20 @@
   });
 
   // The expanded attribution covers the bottom of a small frame. Collapsed, it is still one click away.
-  window.addEventListener('load', () => {
-    if (window.__map?.isStyleLoaded()) addDim(window.__map);
-    else window.__map?.once('style.load', () => addDim(window.__map));
-    window.__map?.once('load', () => {
+  const announceReady = () => {
+      if (!window.__map || !window.__dialevacState?.ready) return;
+      const version = window.__dialevacState.styleVersion ?? 0;
+      if (readyVersion === version && window.__map.getSource(CASES_SOURCE)) return;
+      readyVersion = version;
       document.querySelector('.maplibregl-compact-show')?.classList.remove('maplibregl-compact-show');
+      if (selection) showSelection(selection);
       render();
-    });
+      window.parent.postMessage({ type: 'dialevac:ready' }, '*');
+  };
+  window.addEventListener('dialevac:map-ready', announceReady);
+  window.addEventListener('load', () => {
+    window.__map?.once('load', announceReady);
+    announceReady();
   });
 
   // The hidden panel is the map's only connection status, and this page never reconnects by itself.

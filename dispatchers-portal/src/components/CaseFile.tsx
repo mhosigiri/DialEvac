@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { X, Bot, User, PhoneCall, MessageSquare, Users, Clock } from "lucide-react";
-import type { Call, CallHandoff, CallRecord, CallAnalysis, Correction, DispatchRoute, Message, TranscriptLine, Zone } from "../module_bindings/types";
+import type { Call, CallHandoff, CallRecord, CallAnalysis, Correction, DispatchRoute, RouteGuidance, Message, TranscriptLine, Zone } from "../module_bindings/types";
+import { PickupLocation } from "./PickupLocation";
 import { ClaudeReview } from "./CallInbox";
 import type { CaseRow } from "../lib/cases";
 import { transcriptsForHousehold } from "../lib/data";
@@ -22,6 +23,7 @@ interface CaseFileProps {
   callAnalyses?: readonly CallAnalysis[];
   handoffs: readonly CallHandoff[];
   route?: DispatchRoute;
+  guidance?: RouteGuidance;
   disabled: boolean;
   onCommand: (householdId: bigint, command: Command) => void;
   onClose: () => void;
@@ -52,6 +54,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
   callAnalyses = [],
   handoffs,
   route,
+  guidance,
   disabled,
   onCommand,
   onClose,
@@ -161,6 +164,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
+        <PickupLocation resident={household} responder={assignment ? match?.vehicle : undefined} />
         <Section title="Summary">
           <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "#f5f5f6", overflowWrap: "anywhere" }}>{row.summary}</p>
         </Section>
@@ -213,7 +217,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
           )}
         </Section>
 
-        <RoadRoute row={row} route={route} disabled={disabled} send={send} />
+        <RoadRoute row={row} route={route} guidance={guidance} disabled={disabled} send={send} />
         <ResidentNotice row={row} messages={messages} disabled={disabled} send={send} />
         <HumanHandoff calls={homeCalls} handoffs={handoffs} />
 

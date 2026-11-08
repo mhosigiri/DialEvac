@@ -16,6 +16,7 @@ import { NotAuthorizedBanner } from "./components/OperatorIdentity";
 import { failureMessage, isNotAuthorized, type Command } from "./commands";
 import { ALL_CASES, CRITICAL_CASES, casesCsv, downloadCsv, isCleared, loadMyCases, matchesQuery, queueFilters, saveMyCases, type QueueScope } from "./queue";
 import type { CaseRow } from "./lib/cases";
+import { routeMatchesLocations } from "../../shared/route-guidance";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -36,6 +37,7 @@ function Portal() {
   const [corrections] = useTable(tables.correction);
   const [handoffs] = useTable(tables.callHandoff);
   const [routes] = useTable(tables.dispatchRoute);
+  const [routeGuidances] = useTable(tables.routeGuidance);
   const [zones] = useTable(tables.zone);
   const [coverageRows] = useTable(tables.coverage);
   const [catastropheCases] = useTable(tables.catastropheCase);
@@ -173,7 +175,7 @@ function Portal() {
       })),
     [cases]
   );
-  const openCaseFromMap = useCallback((id: string) => setOpenCaseId(BigInt(id)), []);
+  const openCaseFromMap = useCallback((id: string) => { if (/^\d{1,20}$/.test(id)) setOpenCaseId(BigInt(id)); }, []);
   const closeCase = useCallback(() => setOpenCaseId(undefined), []);
 
   const feedProps = {
@@ -193,7 +195,8 @@ function Portal() {
     <IncidentMapFrame
       selected={openCase && { lat: openCase.household.lat, lng: openCase.household.lng, label: openCase.household.name }}
       cases={mapCases}
-      route={openRoute?.state === "ready" ? openRoute.points : undefined}
+      route={openRoute?.state === "ready" && openCase?.match?.vehicle && routeMatchesLocations(openRoute, openCase.match.vehicle, openCase.household) ? openRoute.points : undefined}
+      responder={openCase?.assignment && openCase.match ? { lat: openCase.match.vehicle.lat, lng: openCase.match.vehicle.lng, label: openCase.match.vehicle.name } : undefined}
       zoneGeometry={incidentZone?.geometryJson}
       onOpenCase={openCaseFromMap}
       onCloseCase={closeCase}
@@ -335,6 +338,7 @@ function Portal() {
           callAnalyses={callAnalyses}
           handoffs={handoffs}
           route={openRoute}
+          guidance={routeGuidances.find(g => g.assignmentId === openCase.assignment?.id)}
           disabled={!connected || busyHouseholdId === openCase.household.id}
           onCommand={handleCommand}
           onClose={closeCase}

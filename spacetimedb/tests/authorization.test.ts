@@ -12,7 +12,7 @@ function environment(ctx: Context, grants: Grants): Context {
   return new Proxy(ctx, { get: (target, key) => key === "env" ? grants : Reflect.get(target, key, target) });
 }
 const operatorActions = ["proposePlan", "approveOffer", "acceptOffer", "declineOffer", "cancelByDriver", "importRiders", "setZone", "escalate", "closeRequest", "closeRoad", "reopenRoad", "issueWarning", "setStandIns", "setHazardOrigin", "endNight", "startFeeds", "notifyResident", "requestDispatchRoute", "retryCallAnalysis", "prepareHoustonDemo", "simulateCatastrophe", "simulateAssessment", "matchClosestDispatcher", "simulateFollowUp", "simulateResidentDelivery"] as const;
-const serviceActions = ["claimCall", "callAnswered", "callEnded", "addTranscriptLine", "markCallback", "recordDigit", "inboundCallEnded", "claimMessage", "messageSent", "messageFailed", "messageWaiting", "receiveMessage", "recordCallTranscript", "recordCallAssessment", "reportCallHandoff", "recordDispatchRoute", "recordProviderCall", "claimCallAnalysis", "finishCallAnalysis", "startDemoOutboundAttempt"] as const;
+const serviceActions = ["claimCall", "callAnswered", "callEnded", "addTranscriptLine", "markCallback", "recordDigit", "inboundCallEnded", "claimMessage", "messageSent", "messageFailed", "messageWaiting", "receiveMessage", "recordCallTranscript", "recordCallAssessment", "reportCallHandoff", "recordDispatchRoute", "recordProviderCall", "claimCallAnalysis", "finishCallAnalysis", "startDemoOutboundAttempt", "recordRouteGuidance"] as const;
 const schedules = ["expireOffer", "runReachStep", "tick", "expireDispatchRoute"] as const;
 
 function fixture() {

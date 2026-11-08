@@ -24,5 +24,5 @@ export { recordProviderCall, claimCallAnalysis, finishCallAnalysis, retryCallAna
 export { recordCallAssessment } from "./households";
 export { seedHoustonVoiceDemo, startDemoOutboundAttempt } from "./houston-demo";
 export { notifyResident, reportCallHandoff } from "./coordination";
-export { requestDispatchRoute, calculateDispatchRoute, recordDispatchRoute, expireDispatchRoute } from "./routes";
+export { requestDispatchRoute, calculateDispatchRoute, recordDispatchRoute, expireDispatchRoute, recordRouteGuidance } from "./routes";
 export { prepareHoustonDemo, simulateCatastrophe, simulateAssessment, matchClosestDispatcher, simulateFollowUp, simulateResidentDelivery } from "./houston-workflow";

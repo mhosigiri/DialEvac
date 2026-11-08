@@ -28,6 +28,7 @@ interface IncidentMapFrameProps {
   selected?: MapSelection;
   cases?: readonly MapCase[];
   route?: readonly { lat: number; lng: number }[];
+  responder?: MapSelection;
   zoneGeometry?: string;
   onOpenCase?: (id: string) => void;
   onCloseCase?: () => void;
@@ -38,8 +39,12 @@ function mapUrl() {
     import.meta.env?.VITE_MAP_URL || "http://127.0.0.1:4178/index.html";
   const uri = import.meta.env?.VITE_SPACETIME_URI || SPACETIME_URI;
   const db = import.meta.env?.VITE_SPACETIME_DATABASE || SPACETIME_DATABASE;
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}uri=${encodeURIComponent(uri)}&db=${encodeURIComponent(db)}`;
+  const url = new URL(base, window.location.href);
+  url.searchParams.set("uri", uri);
+  url.searchParams.set("db", db);
+  url.searchParams.set("embed", "1");
+  url.searchParams.set("portalVersion", "routing-2");
+  return url.href;
 }
 
 /**
@@ -53,6 +58,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
   selected,
   cases,
   route,
+  responder,
   zoneGeometry,
   onOpenCase,
   onCloseCase,
@@ -67,6 +73,8 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
   casesRef.current = cases;
   const routeRef = useRef(route);
   routeRef.current = route;
+  const responderRef = useRef(responder);
+  responderRef.current = responder;
   const zoneRef = useRef(zoneGeometry);
   zoneRef.current = zoneGeometry;
   const mapOrigin = new URL(base, window.location.href).origin;
@@ -84,7 +92,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
     const covered = box ? Math.max(0, box.right - (window.innerWidth - CASE_FILE_WIDTH)) : 0;
     // A route only shows with its case file open, so the trip is framed in the part of the map left visible.
     const coveredRight = box && box.width - covered >= MIN_ROUTE_FRAME_WIDTH ? covered : 0;
-    frame.current?.contentWindow?.postMessage({ type: "dialevac:route", points: routeRef.current ?? null, coveredRight }, mapOrigin);
+    frame.current?.contentWindow?.postMessage({ type: "dialevac:route", points: routeRef.current ?? null, origin: responderRef.current ?? null, destination: selectedRef.current ?? null, coveredRight }, mapOrigin);
   }, [mapOrigin]);
 
   const sendZone = useCallback(() => {
@@ -101,6 +109,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== mapOrigin || e.source !== frame.current?.contentWindow) return;
+      if (e.data?.type === "dialevac:ready") { sendZone(); sendCases(); sendSelection(); sendRoute(); }
       if (e.data?.type === "dialevac:open-case" && typeof e.data.id === "string") onOpenCase?.(e.data.id);
       // Keys pressed after clicking the map go to the frame, so it forwards Escape here.
       if (e.data?.type === "dialevac:escape") {
@@ -110,7 +119,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [mapOrigin, onOpenCase, onCloseCase]);
+  }, [mapOrigin, onOpenCase, onCloseCase, sendZone, sendCases, sendSelection, sendRoute]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -133,7 +142,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
 
   // Selection first, so a route that is already ready frames the whole trip rather than the home alone.
   useEffect(sendSelection, [sendSelection, selected?.lat, selected?.lng, selected?.label]);
-  useEffect(sendRoute, [sendRoute, route]);
+  useEffect(sendRoute, [sendRoute, route, responder?.lat, responder?.lng, responder?.label, selected?.lat, selected?.lng]);
 
   const [failed, setFailed] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -231,7 +240,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
           <iframe
             title="Live incident map (terrain, NWS warnings, fleet)"
             ref={frame}
-            src={`${url}&embed=1`}
+            src={url}
             onLoad={() => {
               sendZone();
               sendCases();

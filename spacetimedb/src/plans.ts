@@ -4,6 +4,7 @@ import { audit, control, endOpenOffer, runAt, liveAssignments, moveRequest, need
 import { vehicleCanServe } from "./domain/need";
 import { OPEN_OFFER } from "./domain/status";
 import { requireOperator } from "./authorization";
+import { queueDispatchRoute } from "./routes";
 
 // Every dispatcher, stand-in or real, writes through writePlan, so the contract's rules hold for
 // all of them: offers only to vehicles that can serve the rider, never into an accepted run, one
@@ -74,6 +75,7 @@ export function writePlan(tx: Tx, write: PlanWrite) {
       decidedAt: undefined,
     });
     if (control(tx).autoApprove) approve(tx, assignment.id);
+    queueDispatchRoute(tx, assignment.id);
   }
   for (const householdId of write.escalate) {
     const request = tx.db.request.householdId.find(householdId);

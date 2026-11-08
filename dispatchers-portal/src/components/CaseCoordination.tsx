@@ -1,5 +1,7 @@
 import React from "react";
-import type { Call, CallHandoff, DispatchRoute, Message } from "../module_bindings/types";
+import type { Call, CallHandoff, DispatchRoute, RouteGuidance, Message } from "../module_bindings/types";
+import { parseRouteSteps, routeMatchesLocations, type RouteStep } from "../../../shared/route-guidance";
+import { coordinateText } from "./PickupLocation";
 import type { CaseRow } from "../lib/cases";
 import type { Command } from "../commands";
 import { Badge } from "../design-system/Badge";
@@ -20,17 +22,24 @@ const ROUTE_BUTTON: Record<string, string> = {
 export const RoadRoute: React.FC<{
   row: CaseRow;
   route?: DispatchRoute;
+  guidance?: RouteGuidance;
   disabled: boolean;
   send: (command: Command) => void;
-}> = ({ row, route, disabled, send }) => {
+}> = ({ row, route, guidance, disabled, send }) => {
   const { assignment, match } = row;
   if (!assignment) return null;
   const unit = match?.vehicle;
-  const unitMoved = route?.state === "ready" && unit && (unit.lat !== route.originLat || unit.lng !== route.originLng);
+  const stale = route && unit && !routeMatchesLocations(route, unit, row.household);
+  const usable = route?.state === "ready" && !stale;
+  const currentGuidance = usable && guidance?.revision === route.revision ? guidance : undefined;
+  let steps: RouteStep[] = [];
+  try { if (currentGuidance) steps = parseRouteSteps(JSON.parse(currentGuidance.stepsJson)); } catch { /* Keep the valid road route visible. */ }
 
   return (
     <Section title="Road route">
-      {route?.state === "ready" && route.distanceMeters !== undefined && route.durationSeconds !== undefined && (
+      {route && <Facts rows={[["Responder coordinates", coordinateText({ lat: route.originLat, lng: route.originLng })], ["Resident coordinates", coordinateText({ lat: route.destinationLat, lng: route.destinationLng })]]} />}
+      {stale && <p role="alert" style={{ color: "#e8b84b", fontSize: 12 }}>Responder or resident location changed. Refresh the route to get current directions.</p>}
+      {usable && route.distanceMeters !== undefined && route.durationSeconds !== undefined && (
         <Facts
           rows={[
             ["Distance", `${(route.distanceMeters / METERS_PER_MILE).toFixed(1)} miles`],
@@ -39,22 +48,25 @@ export const RoadRoute: React.FC<{
           ]}
         />
       )}
-      {route?.state === "ready" && (
+      {usable && (
         <p style={{ margin: "8px 0 0", fontSize: 11.5, lineHeight: 1.45, color: "#9a9aa0" }}>
-          {unitMoved ? "The unit has moved since this was calculated. " : ""}
           From OSRM's road network, with no live traffic or hazard data. A path through a reported closure is rejected, not rerouted.
         </p>
       )}
+      {usable && currentGuidance?.state === "ready" && <div style={{ marginTop: 12 }}><h4 style={{ margin: "0 0 6px", fontSize: 13 }}>Gemini route brief</h4><p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>{currentGuidance.summary}</p><p style={{ margin: "4px 0", color: "#9a9aa0", fontSize: 11 }}>{currentGuidance.model} · verify conditions before travel</p></div>}
+      {usable && !currentGuidance && <Quiet>Preparing Gemini guidance and turn-by-turn directions…</Quiet>}
+      {currentGuidance?.state === "failed" && <Quiet>{currentGuidance.error ?? "Gemini guidance unavailable."}</Quiet>}
+      {steps.length > 0 && <details style={{ marginTop: 12 }} open><summary style={{ cursor: "pointer", fontSize: 13 }}>Driving directions ({steps.length} steps)</summary><ol style={{ paddingLeft: 20, fontSize: 12.5, lineHeight: 1.5 }}>{steps.map((step, index) => <li key={index} style={{ marginBottom: 8 }}>{step.instruction}<span style={{ color: "#9a9aa0" }}> · {Math.round(step.distanceMeters)} m</span></li>)}</ol></details>}
       {route?.state === "failed" && <p style={{ margin: 0, fontSize: 12.5, color: "#f87171" }}>{route.failureReason ?? "No road route was returned."}</p>}
       {!route && <Quiet>No route calculated for {unit?.name ?? "this unit"} yet.</Quiet>}
       <div style={{ marginTop: 10 }}>
         <Button
           variant="secondary"
           size="sm"
-          disabled={disabled || route?.state === "pending"}
+          disabled={disabled || route?.state === "pending" && !stale}
           onClick={() => send({ kind: "route", assignmentId: assignment.id })}
         >
-          {(route && ROUTE_BUTTON[route.state]) ?? "Get road route"}
+          {stale ? "Refresh route" : (route && ROUTE_BUTTON[route.state]) ?? "Get road route"}
         </Button>
       </div>
     </Section>

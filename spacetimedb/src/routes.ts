@@ -6,23 +6,28 @@ import { runAt, type Tx } from "./core";
 import { parseRoadRoute } from "../../shared/routing";
 import { LIVE_ASSIGNMENT } from "./domain/status";
 import { metersBetween, metersToSegment, type Point } from "./domain/geo";
+import { parseRouteSteps, routeMatchesLocations } from "../../shared/route-guidance";
 
 const ROUTE_TIMEOUT_SECONDS = 30;
 
 export const requestDispatchRoute = spacetimedb.reducer({ assignmentId: t.u64() }, (ctx, { assignmentId }) => {
   requireOperator(ctx);
+  queueDispatchRoute(ctx, assignmentId);
+});
+
+export function queueDispatchRoute(ctx: Tx, assignmentId: bigint) {
   const a = ctx.db.assignment.id.find(assignmentId), request = a && ctx.db.request.id.find(a.requestId);
   const v = a && ctx.db.vehicle.id.find(a.vehicleId), home = request && ctx.db.household.id.find(request.householdId);
   if (!a || !request || request.status === "closed" || !(LIVE_ASSIGNMENT as readonly string[]).includes(a.status) || !v || !home) throw new SenderError("route requires a live assignment and open request");
   const previous = ctx.db.dispatchRoute.assignmentId.find(assignmentId);
-  if (previous?.state === "pending" && ctx.timestamp.microsSinceUnixEpoch - previous.updatedAt.microsSinceUnixEpoch < BigInt(ROUTE_TIMEOUT_SECONDS) * 1_000_000n) return;
+  if (previous?.state === "pending" && routeMatchesLocations(previous, v, home) && ctx.timestamp.microsSinceUnixEpoch - previous.updatedAt.microsSinceUnixEpoch < BigInt(ROUTE_TIMEOUT_SECONDS) * 1_000_000n) return;
   const revision = (previous?.revision ?? 0n) + 1n;
   const row = { assignmentId, requestId: request.id, vehicleId: v.id, originLat: v.lat, originLng: v.lng, destinationLat: home.lat, destinationLng: home.lng,
     points: [], distanceMeters: undefined, durationSeconds: undefined, source: "osrm", state: "pending", failureReason: undefined, revision, updatedAt: ctx.timestamp };
   if (previous) ctx.db.dispatchRoute.assignmentId.update(row); else ctx.db.dispatchRoute.insert(row);
   ctx.db.routeJob.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, 0), assignmentId, revision });
   ctx.db.routeTimeout.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, ROUTE_TIMEOUT_SECONDS), assignmentId, revision });
-});
+}
 
 export const expireDispatchRoute = spacetimedb.reducer({ onSchedule: routeTimeout }, { arg: routeTimeout.rowType }, (ctx, { arg }) => {
   requireInternal(ctx);
@@ -63,6 +68,23 @@ export const recordDispatchRoute = spacetimedb.reducer({ assignmentId: t.u64(), 
     ctx.db.dispatchRoute.assignmentId.update(pending);
     commitRoadRoute(ctx, pending, route, failureReason ? "Routing provider unavailable through the service bridge" : undefined);
   });
+
+export const recordRouteGuidance = spacetimedb.reducer({ assignmentId: t.u64(), revision: t.u64(), stepsJson: t.string(), summary: t.option(t.string()), model: t.option(t.string()), error: t.option(t.string()) }, (ctx, args) => {
+  requireService(ctx);
+  const route = ctx.db.dispatchRoute.assignmentId.find(args.assignmentId);
+  if (!route || route.state !== "ready" || route.revision !== args.revision) return;
+  const assignment = ctx.db.assignment.id.find(args.assignmentId), request = assignment && ctx.db.request.id.find(assignment.requestId);
+  const vehicle = assignment && ctx.db.vehicle.id.find(assignment.vehicleId), home = request && ctx.db.household.id.find(request.householdId);
+  if (!assignment || !(LIVE_ASSIGNMENT as readonly string[]).includes(assignment.status) || !request || request.status === "closed" || !vehicle || !home || !routeMatchesLocations(route, vehicle, home)) return;
+  if (args.stepsJson.length > 200_000 || (args.summary?.length ?? 0) > 2000 || (args.model?.length ?? 0) > 100 || (args.error?.length ?? 0) > 300 ||
+    (args.summary !== undefined && (!args.summary.trim() || !args.model?.trim() || args.error !== undefined))) throw new SenderError("Invalid route guidance");
+  let steps;
+  try { steps = parseRouteSteps(JSON.parse(args.stepsJson)); } catch { throw new SenderError("Invalid route directions"); }
+  if (steps.some(step => !route.points.slice(1).some((point, i) => metersToSegment(step, route.points[i], point) <= 250))) throw new SenderError("Directions do not follow the accepted road route");
+  const row = { assignmentId: args.assignmentId, revision: args.revision, stepsJson: JSON.stringify(steps), summary: args.summary, model: args.model,
+    state: args.summary ? "ready" : "failed", error: args.error, updatedAt: ctx.timestamp };
+  if (ctx.db.routeGuidance.assignmentId.find(args.assignmentId)) ctx.db.routeGuidance.assignmentId.update(row); else ctx.db.routeGuidance.insert(row);
+});
 
 export const calculateDispatchRoute = spacetimedb.procedure({ onSchedule: routeJob }, { arg: routeJob.rowType }, t.unit(), (ctx, { arg }) => {
   requireInternal(ctx);

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fetchRoadRoute } from "../src/road-router";
+import { sameRoadGeometry } from "../../shared/routing";
 
 test("route service uses real OSRM GeoJSON order and refuses malformed or failed provider responses", async () => {
   let requested = "";
@@ -12,4 +13,10 @@ test("route service uses real OSRM GeoJSON order and refuses malformed or failed
   assert.equal(result.distanceMeters, 1200);
   await assert.rejects(fetchRoadRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, async () => new Response("", { status: 503 })), /unavailable/);
   await assert.rejects(fetchRoadRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, async () => new Response(JSON.stringify({ code: "NoRoute" }))), /Invalid/);
+});
+
+test("route geometry comparison tolerates a repeated waypoint but rejects a genuinely different road path", () => {
+  const a = { lat: 29.77, lng: -95.405 }, b = { lat: 29.7627, lng: -95.3973 };
+  assert.equal(sameRoadGeometry([a, b, b], [a, b]), true);
+  assert.equal(sameRoadGeometry([a, { ...b, lat: b.lat + .001 }, b], [a, b]), false);
 });

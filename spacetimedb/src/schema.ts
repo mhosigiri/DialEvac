@@ -337,6 +337,10 @@ export const routeJob = table({ name: "route_job" }, {
 export const routeTimeout = table({ name: "route_timeout" }, {
   scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), assignmentId: t.u64(), revision: t.u64(),
 });
+const routeGuidance = table({ name: "route_guidance", public: true }, {
+  assignmentId: t.u64().primaryKey(), revision: t.u64(), stepsJson: t.string(), summary: t.option(t.string()), model: t.option(t.string()),
+  state: t.string(), error: t.option(t.string()), updatedAt: t.timestamp(),
+});
 
 const catastropheCase = table({ name: "catastrophe_case", public: true }, {
   householdId: t.u64().primaryKey(), zoneId: t.u64().index("btree"), hazard: t.string(), runId: t.string(),
@@ -396,6 +400,7 @@ export const spacetimedb = schema(
     dispatchRoute,
     routeJob,
     routeTimeout,
+    routeGuidance,
     catastropheCase,
     followUp,
     callRecord,

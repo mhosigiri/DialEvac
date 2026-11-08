@@ -44,6 +44,7 @@ function loadEmbed() {
     document: {
       documentElement: { classList: { add() {} } },
       createElement: () => ({ append() {}, textContent: '' }),
+      querySelector: () => null,
     },
   };
   sandbox.window = sandbox;
@@ -51,7 +52,8 @@ function loadEmbed() {
   vm.runInContext(SOURCE, sandbox);
   const receive = (data, from = parent) => listeners.message[0]({ source: from, data });
   const press = key => listeners.keydown[0]({ key });
-  return { calls, parent, receive, press, sandbox };
+  const signalReady = () => listeners['dialevac:map-ready'][0]();
+  return { calls, parent, receive, press, sandbox, signalReady };
 }
 
 const REFIT = { type: 'dialevac:refit', width: 1200, height: 800 };
@@ -107,4 +109,21 @@ test('only Escape is forwarded to the portal', () => {
   assert.equal(parent.messages.length, 0);
   press('Escape');
   assert.equal(parent.messages[0].type, 'dialevac:escape');
+});
+
+test('case and route messages received before map initialization survive until the ready handshake', () => {
+  const { calls, parent, receive, sandbox, signalReady } = loadEmbed();
+  const map = sandbox.__map;
+  sandbox.__map = undefined;
+  receive({ type: 'dialevac:cases', cases: [CASE] });
+  receive({ type: 'dialevac:select', selection: CASE });
+  receive({ type: 'dialevac:route', points: ROUTE });
+  assert.equal(calls.fit.length, 0);
+  sandbox.__map = map;
+  signalReady();
+  assert.equal(calls.fit.length, 1);
+  assert.equal(parent.messages.at(-1).type, 'dialevac:ready');
+  const count = parent.messages.length;
+  signalReady();
+  assert.equal(parent.messages.length, count, 'a ready handshake must not create a message/render loop');
 });

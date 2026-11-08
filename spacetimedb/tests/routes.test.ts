@@ -31,6 +31,29 @@ it("translates OSRM longitude/latitude road geometry and keeps distance and dura
     points: [{ lat: vehicle.lat, lng: vehicle.lng }, { lat: home.lat, lng: home.lng }] });
 });
 
+it("automatically queues the responder-to-resident route when a dispatcher creates an assignment", () => {
+  const { h, tx, a, home, vehicle } = fixture();
+  // The fixture's explicit request is an idempotent reuse of the route already queued by proposePlan.
+  expect(h.db.routeJob.count()).toBe(1n);
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ originLat: vehicle.lat, originLng: vehicle.lng, destinationLat: home.lat, destinationLng: home.lng, state: "pending" });
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  expect(h.db.routeJob.count()).toBe(1n);
+});
+
+it("stores guidance only for the current accepted geometry and rejects stale or unrelated directions", () => {
+  const { h, tx, a, snapshot, body, vehicle, home } = fixture();
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  const args = { assignmentId: a.id, revision: snapshot.revision, stepsJson: JSON.stringify([{ instruction: "Depart", road: "Test road", distanceMeters: 1400, durationSeconds: 210, lat: vehicle.lat, lng: vehicle.lng }]), summary: "Take the verified road route.", model: "gemini-test", error: undefined };
+  tx(ctx => moduleExports.recordRouteGuidance(ctx, { ...args, revision: args.revision + 1n }));
+  expect(h.db.routeGuidance.count()).toBe(0n);
+  expect(() => tx(ctx => moduleExports.recordRouteGuidance(ctx, { ...args, stepsJson: JSON.stringify([{ instruction: "Wrong road", road: "Other", distanceMeters: 1, durationSeconds: 1, lat: 0, lng: 0 }]) }))).toThrow(/accepted road/);
+  tx(ctx => moduleExports.recordRouteGuidance(ctx, args));
+  expect(h.db.routeGuidance.assignmentId.find(a.id)).toMatchObject({ state: "ready", summary: args.summary, model: args.model });
+  tx(ctx => ctx.db.household.id.update({ ...home, lat: home.lat + 0.01 }));
+  tx(ctx => moduleExports.recordRouteGuidance(ctx, { ...args, summary: "Late result" }));
+  expect(h.db.routeGuidance.assignmentId.find(a.id)?.summary).toBe(args.summary);
+});
+
 it("records provider failure with no invented straight-line route", () => {
   const { h, tx, a, snapshot } = fixture();
   tx(ctx => commitRoadRoute(ctx, snapshot, undefined, "Routing provider unavailable"));
