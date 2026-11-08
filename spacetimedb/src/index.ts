@@ -16,5 +16,5 @@ export { importRiders, setZone, updateRecord, escalate, claimCall, callAnswered,
 export { runReachStep } from "./reach";
 export { closeRoad, reopenRoad } from "./roads";
 export { replan } from "./dispatch";
-export { issueWarning, setStandIns, setHazardOrigin, endNight, seedStandInTown, tick } from "./loop";
+export { issueWarning, setStandIns, setHazardOrigin, endNight, seedStandInTown, seedTornadoDemo, tick } from "./loop";
 export { pollFeeds, startFeeds } from "./feeds";

@@ -18,7 +18,7 @@ The architecture comes from Standard-Response, with three changes:
 - Photon (Spectrum) carries the text fallback and status callbacks over iMessage.
 - An in-module procedure polls National Weather Service alerts, in place of Apify. It needs no key.
 
-There is no UI yet.
+The live map in `web/` subscribes to the `vehicle` table.
 
 ## Layout
 
@@ -27,6 +27,7 @@ There is no UI yet.
 | `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
 | `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
+| `web/` | Live map: one SpacetimeDB subscription per connection, markers keyed by `vehicle.id`. |
 
 ## How a night runs
 
@@ -57,16 +58,39 @@ spacetime start
 ```
 
 ```bash
-spacetime publish hackutd --module-path spacetimedb
+spacetime login
+spacetime publish hackutd-535md --module-path spacetimedb --server maincloud --yes=remote
+```
+
+Confirm the contract tables exist:
+
+```bash
+spacetime describe hackutd-535md --server maincloud
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM vehicle"
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM request"
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM assignment"
+```
+
+Local publish (for the map and services) still uses `hackutd`:
+
+```bash
+spacetime publish hackutd --module-path spacetimedb --server local -y
+spacetime call hackutd seed_tornado_demo --server local --anonymous
 ```
 
 The module's own settings (`SOLVER_URL`, `SOLVER_TOKEN`, `FEED_AREA`) are declared in `spacetimedb/src/schema.ts` and installed at publish time, not read from `.env`. `spacetime publish --help` lists how to pass them. Leaving them out is fine: the module plans with its heuristic and the feed stays off.
 
-Generate the client bindings the services use, then run each service:
+Generate the client bindings the services and map use, then run each service:
 
 ```bash
 cd services && npm install && npm run generate
 ```
+
+```bash
+cd web && npm install && npm run generate && npm run dev
+```
+
+The map defaults to the local database `hackutd`. After Maincloud publish, open it with `http://localhost:5173/?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md`. Open two tabs: both subscribe once and key markers by `vehicle.id`.
 
 ```bash
 cd services && npm run messaging
@@ -112,4 +136,4 @@ The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That 
 - Spanish calls. The ElevenLabs agent speaks English only for now.
 - Photon messaging on the Beta API. `messaging.ts` still uses the Stable SDK, which rejects Beta (`pho_prj_`) projects.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
-- Any UI.
+- A production map (the `web/` client is the tornado demo overlay).

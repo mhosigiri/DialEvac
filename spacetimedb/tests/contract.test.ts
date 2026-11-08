@@ -5,8 +5,10 @@ import * as moduleExports from "../src/index";
 import { spacetimedb } from "../src/schema";
 import { control, type Tx } from "../src/core";
 import { applyRecord, applyZone, handleDigit, handleInboundCall, handleReply, insertHousehold } from "../src/households";
-import { writePlan } from "../src/plans";
+import { approve, writePlan } from "../src/plans";
 import { accept } from "../src/offers";
+import { heartbeat, seedTornadoIncident, seedTown, startNight } from "../src/loop";
+import { TORNADO_TIMING } from "../src/domain/hazard";
 import { buildWorld, commit, solve } from "../src/dispatch";
 import { applyZones, parseAlerts } from "../src/feeds";
 import { upsertClosure } from "../src/roads";
@@ -220,6 +222,100 @@ describe("the NWS feed", () => {
     });
     tx((ctx) => applyZones(ctx, []));
     tx((ctx) => expect([...ctx.db.zone.iter()][0].active).toBe(false));
+  });
+});
+
+describe("stand-in seeding", () => {
+  it("does not duplicate the simulated fleet on a second seed", () => {
+    const { tx } = harness();
+    tx((ctx) => seedTown(ctx, 3));
+    tx((ctx) => seedTown(ctx, 3));
+    tx((ctx) => {
+      const vehicles = [...ctx.db.vehicle.iter()];
+      expect(vehicles).toHaveLength(4);
+      expect(vehicles.every((v) => v.simulated)).toBe(true);
+      expect(ctx.db.household.count()).toBe(6n);
+    });
+  });
+
+  it("seeds one tornado incident twice without duplicating vehicles or the wheelchair request", () => {
+    const { tx } = harness();
+    tx((ctx) => seedTornadoIncident(ctx));
+    tx((ctx) => seedTornadoIncident(ctx));
+    tx((ctx) => {
+      expect(ctx.db.vehicle.count()).toBe(4n);
+      expect([...ctx.db.request.iter()].filter((r) => r.mobility === "wheelchair")).toHaveLength(1);
+      expect([...ctx.db.zone.iter()].filter((z) => z.externalId === "sim-tornado")).toHaveLength(1);
+      expect(control(ctx).hazard).toBe("tornado");
+    });
+  });
+});
+
+describe("tornado warning timing", () => {
+  it("isolates tornado lead time at startNight instead of keeping wildfire defaults", () => {
+    const { tx } = harness();
+    tx((ctx) => {
+      const before = control(ctx);
+      expect(before.hazard).toBe("wildfire");
+      expect(before.firstArrivalMinutes).toBe(20);
+      expect(before.metersPerMinute).toBe(60);
+      startNight(ctx, "tornado");
+      const after = control(ctx);
+      expect(after.hazard).toBe("tornado");
+      expect(after.firstArrivalMinutes).toBe(TORNADO_TIMING.firstArrivalMinutes);
+      expect(after.metersPerMinute).toBe(TORNADO_TIMING.metersPerMinute);
+    });
+  });
+});
+
+describe("tornado post-impact dispatch", () => {
+  it("rejects an incompatible vehicle, approves without calling, and accepts once", () => {
+    const { tx } = harness();
+    const ids = tx((ctx) => {
+      seedTornadoIncident(ctx);
+      ctx.db.control.id.update({ ...control(ctx), autoApprove: false });
+      const request = [...ctx.db.request.iter()].find((r) => r.mobility === "wheelchair")!;
+      const bus = [...ctx.db.vehicle.iter()].find((v) => v.kind === "bus")!;
+      const van = [...ctx.db.vehicle.iter()].find((v) => v.wheelchairSpaces > 0)!;
+      return { requestId: request.id, busId: bus.id, vanId: van.id };
+    });
+    expect(() => tx((ctx) => offer(ctx, ids.requestId, ids.busId))).toThrow(/can't serve/);
+    const assignment = tx((ctx) => {
+      writePlan(ctx, { solver: "test", solveMs: 0, offers: [{ requestId: ids.requestId, vehicleId: ids.vanId, etaMinutes: 6, stopOrder: 1 }], replace: [], revoke: [], escalate: [] });
+      return [...ctx.db.assignment.requestId.filter(ids.requestId)].find((a) => a.status === "proposed")!;
+    });
+    tx((ctx) => {
+      expect(ctx.db.callback.count()).toBe(0n);
+      approve(ctx, assignment.id);
+      expect(ctx.db.request.id.find(ids.requestId)!.status).toBe("approved");
+      expect(ctx.db.callback.count()).toBe(0n);
+    });
+    tx((ctx) => accept(ctx, assignment.id));
+    expect(() => tx((ctx) => accept(ctx, assignment.id))).toThrow("changed");
+    tx((ctx) => {
+      expect([...ctx.db.assignment.requestId.filter(ids.requestId)].filter((a) => a.status === "accepted")).toHaveLength(1);
+      expect(ctx.db.callback.count()).toBe(1n);
+      expect([...ctx.db.callback.iter()][0].status).toBe("driver_accepted");
+    });
+  });
+
+  it("moves a simulated vehicle toward the accepted pickup on each heartbeat", () => {
+    const { tx } = harness();
+    const before = tx((ctx) => {
+      seedTornadoIncident(ctx);
+      const request = [...ctx.db.request.iter()].find((r) => r.mobility === "wheelchair")!;
+      const van = [...ctx.db.vehicle.iter()].find((v) => v.wheelchairSpaces > 0)!;
+      const a = offer(ctx, request.id, van.id);
+      accept(ctx, a.id);
+      return { vehicleId: van.id, lat: van.lat, lng: van.lng };
+    });
+    tx((ctx) => {
+      heartbeat(ctx);
+      const v = ctx.db.vehicle.id.find(before.vehicleId)!;
+      expect(v.lat).not.toBe(before.lat);
+      expect(v.lng).not.toBe(before.lng);
+      expect([...ctx.db.request.iter()].find((r) => r.mobility === "wheelchair")!.status).toBe("en_route");
+    });
   });
 });
 
