@@ -222,6 +222,45 @@ const zone = table(
   },
 );
 
+// Official warnings as the feed published them, for the map. One row per source and alert id.
+// `geometry` is the alert's GeoJSON geometry, or "" when the alert has none (it is still listed).
+// Holds only public alert text: no household, rider or call data.
+const alert = table(
+  { name: "alert", public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    key: t.string().unique(),
+    alertId: t.string(),
+    source: t.string(),
+    event: t.string(),
+    headline: t.string(),
+    areaDescription: t.string(),
+    geometry: t.string(),
+    issuedAt: t.option(t.timestamp()),
+    effectiveAt: t.option(t.timestamp()),
+    expiresAt: t.option(t.timestamp()),
+    status: t.string(),
+    severity: t.string(),
+    officialUrl: t.string(),
+    active: t.bool().index("btree"),
+    updatedAt: t.timestamp(),
+  },
+);
+
+// Feed health, one row per source, so the map can tell "no active warnings" from "unable to refresh".
+// state: loading (no poll finished yet), current (last poll succeeded), stale (last poll failed),
+// off (no area configured).
+const feedStatus = table(
+  { name: "feed_status", public: true },
+  {
+    source: t.string().primaryKey(),
+    state: t.string(),
+    lastSuccessfulPollAt: t.option(t.timestamp()),
+    lastAttemptAt: t.option(t.timestamp()),
+    error: t.option(t.string()),
+  },
+);
+
 const auditLog = table(
   { name: "audit_log", public: true },
   {
@@ -302,6 +341,8 @@ export const spacetimedb = schema(
     callback,
     roadClosure,
     zone,
+    alert,
+    feedStatus,
     auditLog,
     dispatchState,
     coverage,

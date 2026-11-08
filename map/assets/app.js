@@ -17,6 +17,7 @@ function sunText() {
 function fullStyle(mode) {
   const s = buildStyle(mode);
   for (const h of HAZARDS) if (state.hazards.has(h.id)) h.addTo(s, mode, PAL[mode]);
+  if (window.LIVE) LIVE.addTo(s, mode); // live warnings, simulated zone and vehicles (assets/live.js)
   // MapLibre 5.6 globe projection mis-draws large animated canvas sources (the hurricane covers the map); flat Mercator is correct
   if (state.hazards.has('hurricane')) s.projection = { type: 'mercator' };
   return s;
