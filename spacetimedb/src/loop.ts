@@ -103,10 +103,12 @@ export function warningAreaAround(lat: number, lng: number): [number, number][][
   return [[[lng - dLng, lat - dLat], [lng + dLng, lat - dLat], [lng + dLng, lat + dLat], [lng - dLng, lat + dLat], [lng - dLng, lat - dLat]]];
 }
 
-export const seedTornadoDemo = spacetimedb.reducer((ctx) => seedTornadoIncident(ctx));
+// The public demo seed is intentionally map-only. Outreach and transport are follow-up workflows;
+// callers that exercise the full operational harness opt in through the internal helper.
+export const seedTornadoDemo = spacetimedb.reducer((ctx) => seedTornadoIncident(ctx, false));
 
 // One synthetic tornado incident: warning polygon, mixed simulated fleet, and a wheelchair request.
-export function seedTornadoIncident(ctx: Tx) {
+export function seedTornadoIncident(ctx: Tx, activateOperations = true) {
   const already = Boolean(ctx.db.household.riderId.find(TORNADO_RIDER));
   seedTown(ctx, already ? 0 : 12);
   const c = control(ctx);
@@ -115,7 +117,6 @@ export function seedTornadoIncident(ctx: Tx) {
   const zoneRow = { source: "stand-in", name: "Simulated tornado warning", event: "Tornado Warning", severity: "Extreme", rings: JSON.stringify(rings), active: true, at: ctx.timestamp };
   if (zone) ctx.db.zone.id.update({ ...zone, ...zoneRow });
   else ctx.db.zone.insert({ id: 0n, externalId: TORNADO_ZONE, ...zoneRow });
-  applyZone(ctx, rings);
   let home = ctx.db.household.riderId.find(TORNADO_RIDER);
   if (!home) {
     home = insertHousehold(ctx, {
@@ -130,11 +131,24 @@ export function seedTornadoIncident(ctx: Tx) {
       assistance: "one_person",
       simulated: true,
     });
-    applyZone(ctx, rings);
   }
-  ctx.db.control.id.update({ ...control(ctx), simulateDispatch: true, simulateDrivers: true, autoApprove: true, simulateVoice: false });
-  if (!control(ctx).warningAt || control(ctx).hazard !== "tornado") startNight(ctx, "tornado");
-  applyRecord(ctx, ctx.db.household.id.find(home.id)!, { canLeave: false, people: 2, mobility: "wheelchair", assistance: "one_person" }, "stand-in");
+  if (activateOperations) {
+    applyZone(ctx, rings);
+    ctx.db.control.id.update({ ...control(ctx), simulateDispatch: true, simulateDrivers: true, autoApprove: true, simulateVoice: false });
+    if (!control(ctx).warningAt || control(ctx).hazard !== "tornado") startNight(ctx, "tornado");
+    applyRecord(ctx, ctx.db.household.id.find(home.id)!, { canLeave: false, people: 2, mobility: "wheelchair", assistance: "one_person" }, "stand-in");
+  } else {
+    const current = control(ctx);
+    ctx.db.control.id.update({
+      ...current,
+      warningAt: undefined,
+      generation: current.generation + 1n,
+      simulateVoice: false,
+      simulateDispatch: false,
+      simulateDrivers: false,
+      autoApprove: false,
+    });
+  }
 }
 
 // Most simulated homes walk. The prior is what a records match would know: high for the homes that

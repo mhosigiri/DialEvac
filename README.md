@@ -18,7 +18,7 @@ The architecture comes from Standard-Response, with three changes:
 - Photon (Spectrum) carries the text fallback and status callbacks over iMessage.
 - An in-module procedure polls National Weather Service alerts, in place of Apify. It needs no key.
 
-The live map in `web/` subscribes to the `vehicle` table.
+`map/` is the only map. It is a MapLibre globe with real terrain that subscribes to `zone` and `vehicle` and draws NWS tornado warnings and the fleet.
 
 ## Layout
 
@@ -27,7 +27,7 @@ The live map in `web/` subscribes to the `vehicle` table.
 | `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
 | `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
-| `web/` | Live map: one SpacetimeDB subscription per connection, markers keyed by `vehicle.id`. |
+| `map/` | The only map: MapLibre globe and terrain, live NWS tornado warnings, fleet markers, opt-in IEM radar. One SpacetimeDB subscription per page; `?uri=&db=` selects Maincloud `hackutd-535md` or a local database. |
 
 ## How a night runs
 
@@ -71,7 +71,7 @@ spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM request"
 spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM assignment"
 ```
 
-Local publish (for the map and services) still uses `hackutd`:
+Local publish (for the services) uses `hackutd`; the map's local scenario defaults to `hackutd-richardson`:
 
 ```bash
 spacetime publish hackutd --module-path spacetimedb --server local -y
@@ -86,11 +86,21 @@ Generate the client bindings the services and map use, then run each service:
 cd services && npm install && npm run generate
 ```
 
+Build and start the map:
+
 ```bash
-cd web && npm install && npm run generate && npm run dev
+cd map && npm install && npm run generate && npm run serve
 ```
 
-The map defaults to the local database `hackutd`. After Maincloud publish, open it with `http://localhost:5173/?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md`. Open two tabs: both subscribe once and key markers by `vehicle.id`.
+Open `http://127.0.0.1:4178/index.html`. It opens on Richardson with the Tornado hazard on and connects to the local database `hackutd-richardson` by default (`ws://127.0.0.1:3000`). The Live NWS block in the sidebar shows the connection and the count of active NWS warnings. The IEM radar checkbox is off by default and adds the radar source only while checked. The Start simulation and Reset buttons run the map-only Richardson scenario and are enabled only for a local `uri`; they call `seedTornadoDemo` on that database. `npm run generate` needs the SpacetimeDB CLI; `npm run serve` bundles the client and starts `tools/serve.py`.
+
+To read live warnings from Maincloud instead:
+
+```
+http://127.0.0.1:4178/index.html?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md
+```
+
+Maincloud is read-only in the map: the simulation buttons stay disabled.
 
 ```bash
 cd services && npm run messaging
@@ -136,4 +146,4 @@ The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That 
 - Spanish calls. The ElevenLabs agent speaks English only for now.
 - Photon messaging on the Beta API. `messaging.ts` still uses the Stable SDK, which rejects Beta (`pho_prj_`) projects.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
-- A production map (the `web/` client is the tornado demo overlay).
+- A production operations map. `map/` shows warnings and the fleet; the HAND flood, thunderstorm and hurricane layers are illustrative.

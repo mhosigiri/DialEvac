@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haven Floodplain</title>
-<meta name="description" content="Haven's Floodplain X-Ray map: real terrain, day and night by the sun, flood, thunderstorm and hurricane illustrations.">
+<title>DialEvac · Richardson simulation</title>
+<meta name="description" content="DialEvac MapLibre map with a deterministic Richardson tornado simulation and separate live NWS warnings.">
 <link rel="stylesheet" href="assets/vendor/maplibre-gl.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -18,7 +18,7 @@
   .brand .k{font:600 10.5px/1 "IBM Plex Mono",monospace;letter-spacing:.14em;color:var(--sub);text-transform:uppercase}
   .brand h1{margin:6px 0 4px;font-size:24px;line-height:1.05}
   .brand p{margin:0;font-size:13px;line-height:1.45;color:var(--sub)}
-  .panel{position:absolute;z-index:2;right:16px;top:16px;width:260px;padding:12px 14px}
+  .panel{position:absolute;z-index:2;right:16px;top:16px;width:280px;padding:12px 14px;max-height:calc(100% - 32px);overflow:auto}
   .panel h4{margin:10px 0 6px;font:600 10.5px/1 "IBM Plex Mono",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--sub)} .panel h4:first-child{margin-top:2px}
   .seg{display:flex;gap:4px;background:var(--line);padding:3px;border-radius:10px}
   .seg button,.chip{all:unset;cursor:pointer;flex:1;text-align:center;padding:7px 8px;border-radius:8px;font:600 12.5px/1 "Space Grotesk";color:var(--sub)}
@@ -30,6 +30,13 @@
   .chip:disabled{opacity:.4;cursor:default}
   .seg button:focus-visible,.chip:focus-visible{outline:2px solid var(--accent)}
   .sun{margin-top:8px;font:500 11.5px/1.4 "IBM Plex Mono",monospace;color:var(--sub)}
+  #live-status,#feed-status,#radar-meta{font:500 10.5px/1.4 "IBM Plex Mono",monospace;color:var(--sub)} #live-status{color:var(--accent)}
+  .live-row{display:flex;gap:7px;align-items:center;margin:5px 0;font-size:12px;color:var(--ink)}
+  .simulation{border:1px solid var(--line);border-radius:10px;padding:9px;margin-top:4px}
+  #simulation-label{font:700 12px/1.3 "Space Grotesk";color:var(--ink)}
+  #simulation-phase{margin:3px 0 8px;font:600 10.5px/1.35 "IBM Plex Mono",monospace;color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+  .simulation-actions{display:flex;gap:5px}.simulation-actions button{all:unset;cursor:pointer;flex:1;text-align:center;padding:7px 5px;border-radius:8px;border:1px solid var(--line);font:600 11px/1 "Space Grotesk";color:var(--ink)}
+  .simulation-actions button:disabled{opacity:.38;cursor:default}.simulation-note{margin-top:7px;font:500 9.5px/1.35 "IBM Plex Mono",monospace;color:var(--sub)}
   .legend{position:absolute;z-index:2;left:16px;bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:9px 12px;font:500 12.5px/1 "Space Grotesk"}
   .legend span{display:flex;align-items:center;gap:6px} .legend i{width:11px;height:11px;border-radius:50%;background:var(--c);border:1.5px solid var(--stroke,#fff)}
   .hud{position:absolute;z-index:2;left:50%;transform:translateX(-50%);bottom:16px;padding:8px 12px;font:600 11.5px/1.35 "IBM Plex Mono",monospace;letter-spacing:.03em;font-variant-numeric:tabular-nums;max-width:min(520px,calc(100% - 32px));text-align:center}
@@ -39,13 +46,30 @@
 </head>
 <body>
 <div id="map"></div><div id="fx"></div><canvas id="rain"></canvas>
-<section class="brand glass"><div class="k" id="kicker">Haven · Richardson, TX</div><h1>Floodplain X-Ray</h1><p>Real ground height from USGS elevation data. Low ground is deep teal. All households and hazards are illustrative.</p></section>
+<section class="brand glass"><div class="k" id="kicker">DialEvac · Richardson, TX</div><h1>Tornado simulation</h1><p>A deterministic, map-only catastrophe scenario. Live NWS warnings remain separate.</p></section>
 <aside class="panel glass" aria-label="Map controls">
   <h4>Light</h4>
   <div class="seg" id="modeSeg"><button data-m="auto" aria-pressed="true">Auto</button><button data-m="day" aria-pressed="false">Day</button><button data-m="night" aria-pressed="false">Night</button></div>
   <div class="sun" id="sun"></div>
   <h4>Hazards</h4>
   <div class="chips" id="hazards"></div>
+  <h4>Simulation</h4>
+  <div class="simulation">
+    <div id="simulation-label">Simulated · Richardson, TX</div>
+    <div id="simulation-phase">Ready</div>
+    <div class="simulation-actions">
+      <button id="simulation-start" type="button" disabled>Start simulation</button>
+      <button id="simulation-reset" type="button" disabled>Reset</button>
+    </div>
+    <div class="simulation-note">Map-only scenario · calls and dispatch disabled</div>
+  </div>
+  <h4>Live NWS</h4>
+  <div id="live-status">connecting…</div>
+  <div id="feed-status">feed: waiting</div>
+  <label class="live-row"><input id="radar" type="checkbox"> IEM radar</label>
+  <div id="radar-meta">IEM N0Q · latest composite</div>
+  <div id="warnings" hidden></div>
+  <div id="replay" hidden></div>
   <h4>Motion</h4>
   <div class="seg" id="motionSeg"><button data-v="on" aria-pressed="true">On</button><button data-v="off" aria-pressed="false">Off</button></div>
 </aside>
@@ -63,5 +87,8 @@
 <script src="assets/hazard-flood.js"></script>
 <script src="assets/hazard-storm.js"></script>
 <script src="assets/hazard-hurricane.js"></script>
+<script src="assets/spacetime.js"></script>
+<script src="assets/richardson-simulation.js?v=1"></script>
+<script src="assets/hazard-tornado.js?v=4"></script>
 </body>
 </html>
