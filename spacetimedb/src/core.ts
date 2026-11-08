@@ -4,7 +4,7 @@ import { spacetimedb } from "./schema";
 import { statusLine, type Ride } from "./domain/honesty";
 import { needsOf, vehicleCanServe } from "./domain/need";
 export { needsOf } from "./domain/need";
-import { ANNOUNCED, canMove, isRequestStatus, type AssignmentStatus, type RequestStatus } from "./domain/status";
+import { ANNOUNCED, canMove, isRequestStatus, LIVE_ASSIGNMENT, type AssignmentStatus, type RequestStatus } from "./domain/status";
 import { DEADLINE_MARGIN_MINUTES, minutesUntilHazard } from "./domain/hazard";
 import { urgency } from "./domain/urgency";
 
@@ -84,6 +84,11 @@ export function liveAssignments(tx: Tx, requestId: bigint, statuses: readonly As
 }
 
 export function setAssignment(tx: Tx, assignment: Assignment, status: AssignmentStatus) {
+  if (!LIVE_ASSIGNMENT.includes(status)) {
+    const route = tx.db.dispatchRoute.assignmentId.find(assignment.id);
+    if (route) tx.db.dispatchRoute.assignmentId.update({ ...route, state: "failed", points: [], distanceMeters: undefined, durationSeconds: undefined,
+      failureReason: `Assignment ${status}`, updatedAt: tx.timestamp });
+  }
   return tx.db.assignment.id.update({ ...assignment, status, decidedAt: tx.timestamp });
 }
 

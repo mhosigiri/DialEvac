@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit",
     "check:connections": "tsx --env-file=../.env scripts/check-connections.ts",
     "check:safety": "tsx --env-file=../.env scripts/check-safety.ts",
+    "demo:prepare": "tsx --env-file=../.env scripts/prepare-houston-demo.ts",
+    "demo:call": "tsx --env-file=../.env scripts/call-houston-demo.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts"
   },

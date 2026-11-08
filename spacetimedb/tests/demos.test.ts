@@ -31,6 +31,7 @@ describe("server-side demo isolation", () => {
       (ctx: Context) => seedAssistanceDemo(ctx, {}),
       (ctx: Context) => advanceAssistanceDemo(ctx, { phase: "accept" }),
       (ctx: Context) => moduleExports.replayWarning(ctx, { phase: "appear" }),
+      (ctx: Context) => moduleExports.seedHoustonVoiceDemo(ctx, { hazard: "hurricane" }),
     ];
     for (const operation of operations) {
       expect(() => h.withReducerTx(auth, ctx => operation(environment(ctx)))).toThrow("Demo operations are disabled");

@@ -315,6 +315,26 @@ const transcriptReceipt = table(
   { providerId: t.string().primaryKey(), callId: t.u64().index("btree"), turnCount: t.u32(), at: t.timestamp() },
 );
 
+const callHandoff = table({ name: "call_handoff", public: true }, {
+  callId: t.u64().primaryKey(), status: t.string(), targetLabel: t.string(), failureReason: t.option(t.string()),
+  detail: t.option(t.string()), requestedAt: t.timestamp(), updatedAt: t.timestamp(),
+});
+
+const residentNotice = table({ name: "resident_notice" }, {
+  key: t.string().primaryKey(), requestId: t.u64(), assignmentId: t.u64(), messageId: t.u64(), at: t.timestamp(),
+});
+
+const routePoint = t.object("RoutePoint", { lat: t.f64(), lng: t.f64() });
+const dispatchRoute = table({ name: "dispatch_route", public: true }, {
+  assignmentId: t.u64().primaryKey(), requestId: t.u64().index("btree"), vehicleId: t.u64(),
+  originLat: t.f64(), originLng: t.f64(), destinationLat: t.f64(), destinationLng: t.f64(), points: t.array(routePoint),
+  distanceMeters: t.option(t.f64()), durationSeconds: t.option(t.f64()), source: t.string(), state: t.string(),
+  failureReason: t.option(t.string()), revision: t.u64(), updatedAt: t.timestamp(),
+});
+export const routeJob = table({ name: "route_job" }, {
+  scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), assignmentId: t.u64(), revision: t.u64(),
+});
+
 export const spacetimedb = schema(
   {
     control,
@@ -341,6 +361,10 @@ export const spacetimedb = schema(
     replanJob,
     feedPoll,
     transcriptReceipt,
+    callHandoff,
+    residentNotice,
+    dispatchRoute,
+    routeJob,
   },
   {
     env: {
@@ -352,6 +376,7 @@ export const spacetimedb = schema(
       // Explicit authenticated caller identities. Absence grants nobody the role.
       OPERATOR_IDENTITIES: t.option(t.string()),
       SERVICE_IDENTITIES: t.option(t.string()),
+      ROUTER_URL: t.option(t.string()),
     },
   },
 );

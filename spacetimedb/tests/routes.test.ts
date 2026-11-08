@@ -1,0 +1,79 @@
+import { expect, it } from "vitest";
+import { createModuleTestHarness, TestAuth } from "spacetimedb/server/test-utils";
+import * as moduleExports from "../src/index";
+import { spacetimedb } from "../src/schema";
+import { seedHoustonVoiceStory } from "../src/houston-demo";
+import { commitRoadRoute, parseRoadRoute } from "../src/routes";
+
+function fixture() {
+  const h = createModuleTestHarness(spacetimedb, moduleExports);
+  const tx = <T>(body: (ctx: Parameters<typeof moduleExports.seedHoustonVoiceDemo>[0]) => T) => h.withReducerTx(TestAuth.internal(), body);
+  tx(ctx => seedHoustonVoiceStory(ctx, "flood"));
+  const home = [...h.db.household.iter()][0], call = [...h.db.call.iter()][0], vehicle = [...h.db.vehicle.iter()][0];
+  tx(ctx => moduleExports.claimCall(ctx, { callId: call.id, providerId: "elevenlabs" }));
+  tx(ctx => moduleExports.recordCallAssessment(ctx, { callId: call.id, providerId: "conv-route", choice: "2", people: 1, oxygen: false }));
+  const request = h.db.request.householdId.find(home.id)!;
+  tx(ctx => moduleExports.proposePlan(ctx, { solver: "test", offers: [{ requestId: request.id, vehicleId: vehicle.id, shelterId: undefined, etaMinutes: 5, stopOrder: 1 }], replace: [], revoke: [] }));
+  const a = [...h.db.assignment.iter()][0];
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  const snapshot = h.db.dispatchRoute.assignmentId.find(a.id)!;
+  const body = { code: "Ok", routes: [{ distance: 1400, duration: 210, geometry: { type: "LineString", coordinates: [[vehicle.lng, vehicle.lat], [home.lng, home.lat]] } }] };
+  return { h, tx, home, vehicle, request, a, snapshot, body };
+}
+
+it("translates OSRM longitude/latitude road geometry and keeps distance and duration in their documented units", () => {
+  const { h, tx, snapshot, body, vehicle, home, a } = fixture();
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  expect(h.db.routeJob.count()).toBe(1n);
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "ready", source: "osrm", distanceMeters: 1400, durationSeconds: 210,
+    points: [{ lat: vehicle.lat, lng: vehicle.lng }, { lat: home.lat, lng: home.lng }] });
+});
+
+it("records provider failure with no invented straight-line route", () => {
+  const { h, tx, a, snapshot } = fixture();
+  tx(ctx => commitRoadRoute(ctx, snapshot, undefined, "Routing provider unavailable"));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], distanceMeters: undefined, durationSeconds: undefined });
+  expect(() => parseRoadRoute({ code: "NoRoute" })).toThrow(/Invalid/);
+  expect(() => parseRoadRoute({ code: "Ok", routes: [{ distance: 1, duration: 1, geometry: { type: "LineString", coordinates: [[-95, 29], [NaN, 29]] } }] })).toThrow(/coordinates/);
+});
+
+it("rejects stale responses after closure and when the responder location changes", () => {
+  const { h, tx, a, snapshot, body, request, vehicle } = fixture();
+  tx(ctx => ctx.db.vehicle.id.update({ ...vehicle, lat: vehicle.lat + 0.01 }));
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("failed");
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  const fresh = h.db.dispatchRoute.assignmentId.find(a.id)!;
+  tx(ctx => moduleExports.closeRequest(ctx, { requestId: request.id }));
+  tx(ctx => commitRoadRoute(ctx, fresh, parseRoadRoute(body)));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Request closed" });
+  expect(() => tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }))).toThrow(/live assignment/);
+});
+
+it("rejects geometry that crosses a recorded road closure", () => {
+  const { h, tx, a, snapshot, body, vehicle, home } = fixture();
+  tx(ctx => ctx.db.roadClosure.insert({ id: 0n, externalId: "route-test", source: "simulated", street: "Demo closure", active: true,
+    lat: (vehicle.lat + home.lat) / 2, lng: (vehicle.lng + home.lng) / 2, at: ctx.timestamp }));
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Road route intersects a reported closure" });
+});
+
+it("runs the internal OSRM procedure and commits only the real returned road geometry", () => {
+  const { h, body, a } = fixture();
+  const job = [...h.db.routeJob.iter()][0];
+  let url = "";
+  const base = h.procedureContextBuilder(TestAuth.internal()).http((_h, request) => {
+    url = request.uri;
+    return { code: 200, version: { tag: "Http11" }, headers: { entries: [] }, body: JSON.stringify(body) };
+  }).build();
+  const ctx = new Proxy(base, { get: (target, key) => {
+    if (key === "env") return { ROUTER_URL: "https://router.example.test" };
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  moduleExports.calculateDispatchRoute(ctx, { arg: job });
+  expect(url).toContain("https://router.example.test/route/v1/driving/");
+  expect(url).toContain("geometries=geojson");
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("ready");
+});

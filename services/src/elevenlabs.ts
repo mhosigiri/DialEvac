@@ -1,6 +1,7 @@
 import { ElevenLabsClient, type ElevenLabs } from "@elevenlabs/elevenlabs-js";
 import { env } from "./env";
 import { SURVEY_INTRO } from "../../spacetimedb/src/domain/script";
+import { assessmentToken } from "./live-assessment";
 
 // ElevenLabs runs the conversation on every call; Photon is the line it dials out on (SIP trunk).
 // The agent sorts what a resident says into the keypad's four choices, so a spoken answer lands in
@@ -21,7 +22,8 @@ export async function outboundCall(to: string, variables: CallVariables, firstMe
     agentPhoneNumberId: env.elevenlabs.phoneNumberId(),
     toNumber: to,
     conversationInitiationClientData: {
-      dynamicVariables: variables,
+      dynamicVariables: { ...variables, ...(variables.kind === "survey" && /^\d+$/.test(variables.call_id)
+        ? { secret__assessment_token: assessmentToken(env.elevenlabs.webhookSecret(), BigInt(variables.call_id)) } : {}) },
       ...(firstMessage ? { conversationConfigOverride: { agent: { firstMessage } } } : {}),
     },
     telephonyCallConfig: { ringingTimeoutSecs: 30 },
@@ -52,7 +54,8 @@ export type WebhookEvent =
         conversation_id: string;
         // Official raw post_call_transcription payload: role="agent"|"user", message may be null for tool-only turns.
         // https://elevenlabs.io/docs/eleven-api/resources/webhooks
-        transcript?: { role: string; message?: string | null; time_in_call_secs?: number }[];
+        transcript?: { role: string; message?: string | null; time_in_call_secs?: number;
+          tool_results?: { tool_name?: string; is_error?: boolean; result?: { result_type?: string; status?: string } }[] }[];
         metadata?: { termination_reason?: string };
         analysis?: { data_collection_results?: Collected };
         // ElevenLabs adds system__caller_id (E.164) to every phone call; an incoming call has no call_id.

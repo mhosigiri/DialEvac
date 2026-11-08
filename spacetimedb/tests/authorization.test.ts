@@ -11,8 +11,8 @@ type Grants = { OPERATOR_IDENTITIES?: string; SERVICE_IDENTITIES?: string; DEMO_
 function environment(ctx: Context, grants: Grants): Context {
   return new Proxy(ctx, { get: (target, key) => key === "env" ? grants : Reflect.get(target, key, target) });
 }
-const operatorActions = ["proposePlan", "approveOffer", "acceptOffer", "declineOffer", "cancelByDriver", "importRiders", "setZone", "escalate", "closeRequest", "closeRoad", "reopenRoad", "issueWarning", "setStandIns", "setHazardOrigin", "endNight", "startFeeds"] as const;
-const serviceActions = ["claimCall", "callAnswered", "callEnded", "addTranscriptLine", "markCallback", "recordDigit", "inboundCallEnded", "claimMessage", "messageSent", "messageFailed", "messageWaiting", "receiveMessage", "recordCallTranscript"] as const;
+const operatorActions = ["proposePlan", "approveOffer", "acceptOffer", "declineOffer", "cancelByDriver", "importRiders", "setZone", "escalate", "closeRequest", "closeRoad", "reopenRoad", "issueWarning", "setStandIns", "setHazardOrigin", "endNight", "startFeeds", "notifyResident", "requestDispatchRoute"] as const;
+const serviceActions = ["claimCall", "callAnswered", "callEnded", "addTranscriptLine", "markCallback", "recordDigit", "inboundCallEnded", "claimMessage", "messageSent", "messageFailed", "messageWaiting", "receiveMessage", "recordCallTranscript", "recordCallAssessment", "reportCallHandoff"] as const;
 const schedules = ["expireOffer", "runReachStep", "tick"] as const;
 
 function fixture() {
@@ -31,8 +31,8 @@ function fixture() {
 
 describe("reducer role boundaries", () => {
   it("classifies every exported entry point so additions require an explicit policy decision", () => {
-    expect(Object.keys(moduleExports).sort()).toEqual([...operatorActions, ...serviceActions, ...schedules, "updateRecord", "default", "init", "replan", "pollFeeds",
-      "seedStandInTown", "seedTornadoDemo", "replayWarning", "seedAssistanceDemo", "advanceAssistanceDemo"].sort());
+    expect(Object.keys(moduleExports).sort()).toEqual([...operatorActions, ...serviceActions, ...schedules, "updateRecord", "default", "init", "replan", "pollFeeds", "calculateDispatchRoute",
+      "seedStandInTown", "seedTornadoDemo", "replayWarning", "seedAssistanceDemo", "advanceAssistanceDemo", "seedHoustonVoiceDemo"].sort());
   });
   it.each([...operatorActions, ...serviceActions, "updateRecord"] as const)("denies an ungranted viewer at %s before any data validation or write", name => {
     const { call, stranger, h } = fixture();
@@ -82,7 +82,7 @@ describe("reducer role boundaries", () => {
     for (const caller of [op, service, stranger]) expect(() => call(caller, name)).toThrow(/scheduled|internal/i);
   });
 
-  it.each(["replan", "pollFeeds"] as const)("rejects client calls to scheduled %s before issuing any HTTP request", name => {
+  it.each(["replan", "pollFeeds", "calculateDispatchRoute"] as const)("rejects client calls to scheduled %s before issuing any HTTP request", name => {
     const { h, op, service, stranger } = fixture();
     for (const auth of [op, service, stranger]) {
       const ctx = h.procedureContextBuilder(auth).http(() => { throw new Error("HTTP must not run"); }).build();

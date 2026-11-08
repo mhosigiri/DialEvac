@@ -13,15 +13,16 @@ export const SERVICE_QUERIES = [
 ];
 
 export function connect(): Promise<Contract> {
+  const target = { uri: env.spacetime.uri(), database: env.spacetime.database() };
   return new Promise((resolve, reject) => {
     DbConnection.builder()
-      .withUri(env.spacetime.uri())
-      .withDatabaseName(env.spacetime.database())
+      .withUri(target.uri)
+      .withDatabaseName(target.database)
       .withToken(env.spacetime.token())
       .onConnect((conn) => {
         conn
           .subscriptionBuilder()
-          .onApplied(() => resolve(contractFor(conn)))
+          .onApplied(() => resolve(contractFor(conn, target)))
           .onError((ctx) => reject(ctx.event ?? new Error("subscription failed")))
           .subscribe(SERVICE_QUERIES);
       })
@@ -36,10 +37,11 @@ export function connect(): Promise<Contract> {
   });
 }
 
-export function contractFor(conn: DbConnection): Contract {
+export function contractFor(conn: DbConnection, target?: { uri: string; database: string }): Contract {
   const db = conn.db;
   const r = conn.reducers;
   return {
+    target,
     household: (id) => db.household.id.find(id) ?? undefined,
     call: (id) => db.call.id.find(id) ?? undefined,
     onQueuedMessage(handler) {
@@ -66,6 +68,10 @@ export function contractFor(conn: DbConnection): Contract {
       r.inboundCallEnded({ phone, providerId, choice: answer.choice, people: answer.people, oxygen: answer.oxygen }),
     recordCallTranscript: ({ providerId, callId, callbackId, phone, turns }) =>
       r.recordCallTranscript({ providerId, callId, callbackId, phone, turns }),
+    recordCallAssessment: ({ callId, providerId, choice, people, oxygen }) =>
+      r.recordCallAssessment({ callId, providerId, choice, people, oxygen }),
+    reportCallHandoff: ({ callId, status, targetLabel, failureReason, detail }) =>
+      r.reportCallHandoff({ callId, status, targetLabel, failureReason, detail }),
     updateRecord: (householdId, patch, source) =>
       r.updateRecord({
         householdId,

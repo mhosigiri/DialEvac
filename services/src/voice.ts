@@ -2,6 +2,8 @@ import http from "node:http";
 import { env, isFictional, mayContact } from "./env";
 import { endedOn, failureOutcome, outboundCall, surveyAnswer, verifiedEvent, type WebhookEvent } from "./elevenlabs";
 import type { CallbackRow, CallRow, Contract, HouseholdRow, ConversationTranscript } from "./contract";
+import { recordLiveAssessment, recordLiveHandoff } from "./live-assessment";
+import { demoContacts } from "./demo-handoff";
 
 // The voice service. Places queued survey calls and pending callbacks at a paced rate from the
 // Photon number, where an ElevenLabs agent holds the conversation, and takes each one's result back
@@ -92,6 +94,18 @@ export async function handleElevenlabsEvent(db: Contract, event: WebhookEvent) {
     if (!["agent", "user"].includes(turn.role) || typeof turn.message !== "string" || !turn.message.trim()) return [];
     return [{ speaker: turn.role === "agent" ? "agent" as const : "resident" as const, text: turn.message }];
   });
+  if (conversation && callId !== undefined) {
+    const transfers = (conversation.transcript ?? []).flatMap(turn => turn.tool_results ?? []).filter(result => result.tool_name === "transfer_to_number");
+    for (const result of transfers) {
+      const targetLabel = `Demo dispatcher ending ${demoContacts(env.allowlist).dispatcher.slice(-4)}`;
+      if (result.is_error || result.result?.result_type === "transfer_to_number_error") {
+        await db.reportCallHandoff({ callId, status: "failed", targetLabel, failureReason: "Phone provider reported a transfer failure" });
+      } else if (result.result?.result_type === "transfer_to_number_sip_success") {
+        // SIP success acknowledges REFER, not a verified human answer. Keep status truthful.
+        await db.reportCallHandoff({ callId, status: "requested", targetLabel, detail: "SIP REFER accepted; recipient connection is unconfirmed" });
+      }
+    }
+  }
   if (callbackId !== undefined) {
     if (conversation && turns.length) await db.recordCallTranscript({ providerId: conversation.conversation_id, callbackId, turns });
     return db.markCallback(callbackId, failed ? "unanswered" : "played");
@@ -115,9 +129,14 @@ export async function handleElevenlabsEvent(db: Contract, event: WebhookEvent) {
   return db.callEnded(callId, endedOn(conversation?.metadata?.termination_reason));
 }
 
-async function readBody(req: http.IncomingMessage) {
+async function readBody(req: http.IncomingMessage, limit = Infinity) {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += (chunk as Buffer).length;
+    if (bytes > limit) throw new Error("request too large");
+    chunks.push(chunk as Buffer);
+  }
   return Buffer.concat(chunks).toString();
 }
 
@@ -125,6 +144,22 @@ export function createServer(db: Contract) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (req.method === "GET" && url.pathname === "/health") return void res.writeHead(200).end("ok");
+    if (req.method === "GET" && url.pathname === "/capabilities") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ liveAssessment: true, ...db.target }));
+    if (req.method === "POST" && ["/elevenlabs/assessment", "/elevenlabs/handoff"].includes(url.pathname)) {
+      let body: unknown;
+      try { body = JSON.parse(await readBody(req, 16_384)); } catch { return void res.writeHead(400).end(); }
+      const token = req.headers["x-assessment-token"];
+      const handoff = url.pathname.endsWith("/handoff");
+      let operation: Promise<number>;
+      try { operation = handoff
+        ? recordLiveHandoff(db, env.elevenlabs.webhookSecret(), typeof token === "string" ? token : undefined, body, `Demo dispatcher ending ${demoContacts(env.allowlist).dispatcher.slice(-4)}`)
+        : recordLiveAssessment(db, env.elevenlabs.webhookSecret(), typeof token === "string" ? token : undefined, body); }
+      catch { return void res.writeHead(503).end(); }
+      return operation.then(
+        status => void res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(handoff ? { requested: status === 200 } : { recorded: status === 200 })),
+        () => void res.writeHead(503).end(),
+      );
+    }
     if (req.method !== "POST" || url.pathname !== "/elevenlabs/webhook") return void res.writeHead(404).end();
     const event = await verifiedEvent(await readBody(req), req.headers["elevenlabs-signature"] as string | undefined, env.elevenlabs.webhookSecret());
     if (!event) return void res.writeHead(401).end();

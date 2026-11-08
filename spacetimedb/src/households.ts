@@ -294,6 +294,25 @@ export const recordDigit = spacetimedb.reducer({ callId: t.u64(), digit: t.strin
   if (handleDigit(ctx, callId, digit)) endCall(ctx, callId, "answered");
 });
 
+// A live agent tool publishes known answers before a human handoff. Unlike recordDigit, this
+// does not end the call, and does not write transcript turns that the final webhook will ingest.
+export const recordCallAssessment = spacetimedb.reducer(
+  { callId: t.u64(), providerId: t.string(), choice: t.string(), people: t.option(t.u32()), oxygen: t.option(t.bool()) },
+  (ctx, { callId, providerId, choice, people, oxygen }) => {
+    requireService(ctx);
+    const call = ctx.db.call.id.find(callId);
+    if (!call || call.purpose !== "survey" || !["ringing", "live"].includes(call.phase)) throw new SenderError("assessment requires an active survey call");
+    if (!providerId.trim() || providerId.length > 256 || (call.providerId && !["elevenlabs", providerId].includes(call.providerId))) throw new SenderError("conversation does not match this call");
+    if (choice !== "" && !REPLIES[choice]) throw new SenderError("unknown survey answer");
+    if (people !== undefined && (!Number.isInteger(people) || people < 1 || people >= 50)) throw new SenderError("people must be between 1 and 49");
+    const home = ctx.db.household.id.find(call.householdId);
+    if (!home) throw new SenderError("no such household");
+    const patch: RecordPatch = { ...(REPLIES[choice] ?? {}), ...(people !== undefined ? { people } : {}), ...(oxygen !== undefined ? { oxygen } : {}) };
+    if (Object.keys(patch).length) applyRecord(ctx, home, patch, "live-voice");
+    ctx.db.call.id.update({ ...call, providerId, phase: "live" });
+  },
+);
+
 // A resident who called the response line. The call is logged against the home with the caller's
 // number, and a clear answer fills the record like a pressed key. A conversation already logged is
 // skipped, so a retried webhook changes nothing.
@@ -343,6 +362,9 @@ export const closeRequest = spacetimedb.reducer({ requestId: t.u64() }, (ctx, { 
     if (message.direction === "out" && message.requestStatus !== undefined && ["queued", "waiting"].includes(message.state)) {
       ctx.db.message.id.update({ ...message, state: "superseded", error: "request closed" });
     }
+  }
+  for (const route of ctx.db.dispatchRoute.requestId.filter(requestId)) {
+    ctx.db.dispatchRoute.assignmentId.update({ ...route, state: "failed", failureReason: "Request closed", points: [], distanceMeters: undefined, durationSeconds: undefined, updatedAt: ctx.timestamp });
   }
   if (requestStatus(request) !== "closed") moveRequest(ctx, request, "closed", null, { etaMinutes: undefined });
   else if (request.etaMinutes !== undefined) ctx.db.request.id.update({ ...request, etaMinutes: undefined, updatedAt: ctx.timestamp });
