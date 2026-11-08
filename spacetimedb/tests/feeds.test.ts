@@ -195,6 +195,20 @@ describe("feed reconciliation", () => {
 });
 
 describe("replay warning", () => {
+  it("does not deactivate official live warnings in any replay phase", () => {
+    const { tx } = harness();
+    tx(ctx => commitFeed(ctx, { area: "TX", zones: parseAlerts({ features: [tornado("urn:live")] }) }));
+    for (const phase of ["appear", "update", "disappear"]) {
+      tx(ctx => replayPhase(ctx, phase));
+      tx(ctx => {
+        expect(ctx.db.zone.externalId.find("urn:live")!.active).toBe(true);
+        expect(ctx.db.feedHealth.id.find(0)!.warningCount).toBe(1);
+      });
+    }
+    tx(ctx => commitFeed(ctx, { area: "TX", zones: [] }));
+    tx(ctx => expect(ctx.db.zone.externalId.find("urn:live")!.active).toBe(false));
+  });
+
   it("appears, updates and clears one replay polygon without counting as live or opening outreach", () => {
     const { tx } = harness();
     const replay = (phase: string) => tx((ctx) => replayPhase(ctx, phase));

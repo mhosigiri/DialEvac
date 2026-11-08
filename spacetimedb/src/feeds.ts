@@ -2,6 +2,7 @@ import { Timestamp } from "spacetimedb";
 import { SenderError, t } from "spacetimedb/server";
 import { feedPoll, spacetimedb } from "./schema";
 import { audit, runAt, type Tx } from "./core";
+import { requireDemoDatabase } from "./demo-guard";
 
 // Live NWS ingestion is display-only. It never calls applyZone, starts a reach ladder, or writes a
 // request. A failed poll marks health stale and deliberately preserves the last good polygons.
@@ -102,6 +103,8 @@ export function applyZones(tx: Tx, zones: FeedZone[], source = "nws", area = "")
     else tx.db.zone.insert({ id: 0n, externalId: zone.externalId, ...row });
   }
   for (const row of [...tx.db.zone.active.filter(true)]) {
+    // A replay is an update to replay rows, never a complete snapshot of the live feed.
+    if (row.source !== source) continue;
     if (!liveKind(row.kind, row.source)) continue;
     if (area && row.area && row.area !== area) continue;
     if (!seen.has(row.externalId)) tx.db.zone.id.update({ ...row, active: false, at: tx.timestamp });
@@ -185,4 +188,7 @@ export function replayPhase(ctx: Tx, phase: string) {
   }], "replay", "TX");
 }
 
-export const replayWarning = spacetimedb.reducer({ phase: t.string() }, (ctx, { phase }) => replayPhase(ctx, phase));
+export const replayWarning = spacetimedb.reducer({ phase: t.string() }, (ctx, { phase }) => {
+  requireDemoDatabase(ctx);
+  replayPhase(ctx, phase);
+});

@@ -212,7 +212,7 @@ const zone = table(
   {
     id: t.u64().primaryKey().autoInc(),
     externalId: t.string().unique(),
-    source: t.string(),
+    source: t.string().index("btree"),
     name: t.string(),
     event: t.string(),
     severity: t.string(),
@@ -340,6 +340,8 @@ export const spacetimedb = schema(
       SOLVER_URL: t.option(t.string()),
       SOLVER_TOKEN: t.option(t.string()),
       FEED_AREA: t.option(t.string()),
+      // Only a separately published demo database may run public fixture reducers.
+      DEMO_MODE: t.option(t.string()),
     },
   },
 );

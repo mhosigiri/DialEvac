@@ -16,3 +16,4 @@ __pycache__/
 reference_images/
 
 **/src/module_bindings/
+map/assets/spacetime.js

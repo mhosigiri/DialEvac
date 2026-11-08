@@ -38,6 +38,7 @@ Real-time Incident Commander & Dispatcher dashboard connected directly to **Spac
 ```bash
 cd dispatchers-portal
 npm install
+npm run generate
 npm run dev
 ```
 

@@ -113,6 +113,7 @@ export function vehicleCollection() {
 export function demoStatusLine() {
   if (demoState === "connecting") return `local demo connecting · ${demoDatabase}`;
   if (demoState === "error") return `local demo unavailable · ${demoError || "connection failed"}`;
+  if (demoError) return `local demo failed · ${demoError}`;
   return `local demo connected · ${demoDatabase}`;
 }
 export function radarLine() { return health?.radarValidAt ? `IEM N0Q · ${health.radarValidAt}` : "IEM N0Q · latest composite"; }
@@ -143,17 +144,25 @@ export function warningCollection() {
   return { type: "FeatureCollection" as const, features };
 }
 
-export function seedTornadoDemo() {
+async function runDemoReducer(run: (connection: DbConnection) => Promise<unknown>) {
   if (!demoConnection || demoState !== "connected" || !isLocalDemo()) return false;
-  demoConnection.reducers.seedTornadoDemo({}); return true;
+  try {
+    await run(demoConnection);
+    demoError = undefined; notify(statusListeners);
+    return true;
+  } catch (error) {
+    demoError = String(error); notify(statusListeners);
+    return false;
+  }
+}
+export function seedTornadoDemo() {
+  return runDemoReducer(connection => connection.reducers.seedTornadoDemo({}));
 }
 export function seedAssistanceDemo() {
-  if (!demoConnection || demoState !== "connected" || !isLocalDemo()) return false;
-  demoConnection.reducers.seedAssistanceDemo({}); return true;
+  return runDemoReducer(connection => connection.reducers.seedAssistanceDemo({}));
 }
 export function advanceAssistanceDemo(phase: "approve" | "accept") {
-  if (!demoConnection || demoState !== "connected" || !isLocalDemo()) return false;
-  demoConnection.reducers.advanceAssistanceDemo({ phase }); return true;
+  return runDemoReducer(connection => connection.reducers.advanceAssistanceDemo({ phase }));
 }
 
 function connectLive() {
@@ -161,8 +170,7 @@ function connectLive() {
   liveConnection = DbConnection.builder().withUri(uri).withDatabaseName(database)
     .onConnect(conn => {
       liveState = "connected"; liveError = undefined; notify(statusListeners);
-      // Idempotent on the module: ensure the existing display-only NWS poller is running.
-      conn.reducers.startFeeds({});
+      // The public map only reads. Operators start the feed independently of page connections.
       if (liveSubscribed) return;
       liveSubscribed = true; liveSubscriptionCount += 1;
       conn.subscriptionBuilder().onApplied(() => {

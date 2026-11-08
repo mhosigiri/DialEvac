@@ -5,6 +5,7 @@ import { accept } from "./offers";
 import { approve, writePlan } from "./plans";
 import { control, later, type Tx } from "./core";
 import { seedTown } from "./loop";
+import { requireDemoDatabase } from "./demo-guard";
 
 export const DEMO_WHEELCHAIR = "demo-richardson-wheelchair";
 export const DEMO_PENDING = "demo-richardson-no-response";
@@ -13,9 +14,43 @@ function ensureHome(tx: Tx, riderId: string, row: Parameters<typeof insertHouseh
   return tx.db.household.riderId.find(riderId) ?? insertHousehold(tx, row);
 }
 
+// Reset only this story's records. Other simulated incidents and their assignments stay intact.
+function resetAssistanceStory(tx: Tx) {
+  const homes = [DEMO_WHEELCHAIR, DEMO_PENDING].flatMap(riderId => {
+    const home = tx.db.household.riderId.find(riderId);
+    return home ? [home] : [];
+  });
+  const homeIds = new Set(homes.map(home => home.id));
+  const requests = homes.flatMap(home => {
+    const request = tx.db.request.householdId.find(home.id);
+    return request ? [request] : [];
+  });
+  const assignments = requests.flatMap(request => [...tx.db.assignment.requestId.filter(request.id)]);
+  const assignmentIds = new Set(assignments.map(assignment => assignment.id));
+  const calls = homes.flatMap(home => [...tx.db.call.householdId.filter(home.id)]);
+  for (const call of calls) {
+    for (const line of [...tx.db.transcriptLine.callId.filter(call.id)]) tx.db.transcriptLine.id.delete(line.id);
+    tx.db.call.id.delete(call.id);
+  }
+  for (const home of homes) {
+    for (const message of [...tx.db.message.householdId.filter(home.id)]) tx.db.message.id.delete(message.id);
+    for (const correction of [...tx.db.correction.householdId.filter(home.id)]) tx.db.correction.id.delete(correction.id);
+  }
+  for (const callback of [...tx.db.callback.iter()]) if (homeIds.has(callback.householdId)) tx.db.callback.id.delete(callback.id);
+  for (const step of [...tx.db.reachStep.iter()]) if (homeIds.has(step.householdId)) tx.db.reachStep.scheduledId.delete(step.scheduledId);
+  for (const expiry of [...tx.db.offerExpiry.iter()]) if (assignmentIds.has(expiry.assignmentId)) tx.db.offerExpiry.scheduledId.delete(expiry.scheduledId);
+  for (const assignment of assignments) tx.db.assignment.id.delete(assignment.id);
+  for (const planId of new Set(assignments.map(assignment => assignment.planId))) {
+    if (tx.db.plan.id.find(planId)?.solver === "simulated-demo" && ![...tx.db.assignment.iter()].some(assignment => assignment.planId === planId)) tx.db.plan.id.delete(planId);
+  }
+  for (const request of requests) tx.db.request.id.delete(request.id);
+  for (const home of homes) tx.db.household.id.delete(home.id);
+}
+
 // Deterministic local-only aftermath fixture. It uses the real request/plan/offer state machine,
 // but every person, phone, message, vehicle and driver is explicitly simulated.
 export function seedAssistanceStory(tx: Tx) {
+  resetAssistanceStory(tx);
   seedTown(tx, 0);
   const current = control(tx);
   tx.db.control.id.update({ ...current, warningAt: undefined, generation: current.generation + 1n, simulateVoice: false, simulateDispatch: false, simulateDrivers: false, autoApprove: false });
@@ -63,7 +98,10 @@ export function seedAssistanceStory(tx: Tx) {
   }
 }
 
-export const seedAssistanceDemo = spacetimedb.reducer(ctx => seedAssistanceStory(ctx));
+export const seedAssistanceDemo = spacetimedb.reducer(ctx => {
+  requireDemoDatabase(ctx);
+  seedAssistanceStory(ctx);
+});
 
 export function advanceAssistanceStory(ctx: Tx, phase: string) {
   const home = ctx.db.household.riderId.find(DEMO_WHEELCHAIR);
@@ -83,4 +121,7 @@ export function advanceAssistanceStory(ctx: Tx, phase: string) {
   throw new SenderError(`unknown demo phase ${phase}`);
 }
 
-export const advanceAssistanceDemo = spacetimedb.reducer({ phase: t.string() }, (ctx, { phase }) => advanceAssistanceStory(ctx, phase));
+export const advanceAssistanceDemo = spacetimedb.reducer({ phase: t.string() }, (ctx, { phase }) => {
+  requireDemoDatabase(ctx);
+  advanceAssistanceStory(ctx, phase);
+});

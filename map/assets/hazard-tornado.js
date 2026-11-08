@@ -14,6 +14,8 @@
   let hurricaneStartedAt = 0;
   let hurricaneAfterAt = 0;
   let workflowStage = 0;
+  let startingDemo = false;
+  let demoRun = 0;
   let listening = false;
   let warningKey = '';
   let panelKey = '';
@@ -154,9 +156,9 @@
   }
 
   function renderDemoUi() {
-    document.querySelectorAll('[data-demo]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.demo === selection)));
+    document.querySelectorAll('[data-demo]').forEach(button => { button.setAttribute('aria-pressed', String(button.dataset.demo === selection)); button.disabled = startingDemo; });
     document.getElementById('demo-phase').textContent = phaseText();
-    document.getElementById('run-demo').disabled = !selection || live()?.demoSnapshot().state !== 'connected' || (view !== 'live' && phaseText().startsWith('During'));
+    document.getElementById('run-demo').disabled = startingDemo || !selection || live()?.demoSnapshot().state !== 'connected' || (view !== 'live' && phaseText().startsWith('During'));
     document.getElementById('reset-demo').disabled = view === 'live' || (tornado.phase === 'idle' && hurricanePhase === 'idle');
     document.getElementById('return-live').disabled = view === 'live';
     const title = document.getElementById('view-title'), subtitle = document.getElementById('view-subtitle');
@@ -175,22 +177,28 @@
     removeRadar(window.__map);
   }
   function resetDemo() {
+    demoRun += 1;
     tornado.reset(); hurricanePhase = 'idle'; hurricaneStartedAt = hurricaneAfterAt = workflowStage = 0; clearDemoSources(); renderDemoUi();
   }
   function returnLive() {
     resetDemo(); view = 'live'; warningKey = vehicleKey = ''; applyWarnings(); renderLivePanel(); scheduleExpiry(live()); if (radarOn()) addRadar(window.__map); renderDemoUi(); window.__map?.flyTo({ ...HOME, duration: 900, essential: true });
   }
-  function runDemo() {
-    if (!selection) return;
-    resetDemo(); hideLive(); view = selection;
+  async function runDemo() {
+    if (!selection || startingDemo) return;
+    const selected = selection;
+    const run = demoRun;
+    startingDemo = true; renderDemoUi();
+    const ready = await (selected === 'tornado' ? live()?.seedTornadoDemo() : live()?.seedAssistanceDemo());
+    startingDemo = false;
+    if (!ready || run !== demoRun) { renderDemoUi(); return; }
+    resetDemo(); hideLive(); view = selected;
     const now = performance.now(), reduced = !window.__dialevacState?.motion;
-    if (selection === 'tornado') {
-      live()?.seedTornadoDemo();
+    if (selected === 'tornado') {
       const result = tornado.start(reduced ? now - sim.DURATION_MS : now); lastTornadoMarker = result.marker;
       setData('richardson-scenario-static', TORNADO_STATIC); setData('richardson-tornado', sim.pointCollection(result.marker));
       window.__map?.flyTo({ center: sim.CENTER, zoom: 12.4, pitch: 38, bearing: -12, duration: reduced ? 0 : 900, essential: true });
     } else {
-      live()?.seedAssistanceDemo(); hurricanePhase = 'during'; hurricaneStartedAt = reduced ? now - HURRICANE_DURATION : now;
+      hurricanePhase = 'during'; hurricaneStartedAt = reduced ? now - HURRICANE_DURATION : now;
       setData('hurricane-track', HURRICANE_TRACK); lastHurricaneMarker = sim.hurricanePositionAt(0); setData('hurricane-moving', point(lastHurricaneMarker, { kind: 'hurricane' }));
       window.__map?.flyTo({ center: [-96.0, 31.0], zoom: 5.4, pitch: 18, bearing: 0, duration: reduced ? 0 : 900, essential: true });
     }
@@ -286,8 +294,15 @@
         }
       }
       if (view === 'hurricane' && hurricanePhase === 'after') {
-        if (workflowStage === 0 && now - hurricaneAfterAt > 900) { workflowStage = 1; live()?.advanceAssistanceDemo('approve'); }
-        if (workflowStage === 1 && now - hurricaneAfterAt > 2400) { workflowStage = 2; live()?.advanceAssistanceDemo('accept'); }
+        const run = demoRun;
+        if (workflowStage === 0 && now - hurricaneAfterAt > 900) {
+          workflowStage = 1;
+          void live()?.advanceAssistanceDemo('approve').then(ok => { if (run === demoRun) workflowStage = ok ? 2 : -1; });
+        }
+        if (workflowStage === 2 && now - hurricaneAfterAt > 2400) {
+          workflowStage = 3;
+          void live()?.advanceAssistanceDemo('accept').then(ok => { if (run === demoRun) workflowStage = ok ? 4 : -1; });
+        }
       }
       return view === 'live' ? '' : `${view === 'tornado' ? sim.LABEL : 'Simulated · Hurricane Aftermath'} · ${phaseText()}`;
     },

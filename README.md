@@ -32,7 +32,7 @@ The architecture comes from Standard-Response, with three changes:
 
 ## How a night runs
 
-1. `issueWarning` (or a Severe or Extreme NWS alert polygon) marks homes in the zone and starts each home's reach ladder. Every home gets a survey text at once, since texts go out in parallel. Then comes a call, a retry at 2 minutes and another at 5, then the door-check list for field teams. Calls are paced, so a step waits while the home's last call is still queued. A home still unreached 25 minutes before its hazard goes to door checks without waiting.
+1. An operator uses `setZone` to mark the outreach area, then `issueWarning` starts each in-zone home's reach ladder. The live NWS map feed is display-only and does not start calls or messages. Every home gets a survey text at once, since texts go out in parallel. Then comes a call, a retry at 2 minutes and another at 5, then the door-check list for field teams. Calls are paced, so a step waits while the home's last call is still queued. A home still unreached 25 minutes before its hazard goes to door checks without waiting.
 2. A survey answer by keypad or text reply updates the household. That opens a ride request with the household's needs: mobility, crew size, lift, oxygen and a deadline from the hazard.
 3. `replan` runs every 5 seconds and whenever a road closes. It builds the problem from live tables, asks the solver, and writes a plan. An accepted run is frozen; the planner can only add stops after it.
 4. A driver accepts or declines the offer. Offers expire after 2 minutes. Accepting moves the request to `driver_accepted`. That queues one callback and one Photon message, keyed so a retry never sends two.
@@ -60,26 +60,25 @@ spacetime start
 
 ```bash
 spacetime login
-spacetime publish hackutd-535md --module-path spacetimedb --server maincloud --yes=remote
+spacetime publish hackutd-535md --module-path spacetimedb --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
 ```
 
 Confirm the contract tables exist:
 
 ```bash
 spacetime describe hackutd-535md --server maincloud
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM vehicle"
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM request"
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM assignment"
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM vehicle"
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM request"
+spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM assignment"
 ```
 
 Local publish (for the services) uses `hackutd`; the map's local scenario defaults to `hackutd-richardson`:
 
 ```bash
-spacetime publish hackutd --module-path spacetimedb --server local -y
-spacetime call hackutd seed_tornado_demo --server local --anonymous
+spacetime publish hackutd --module-path spacetimedb --server local --delete-data=never --no-config
 ```
 
-The module's own settings (`SOLVER_URL`, `SOLVER_TOKEN`, `FEED_AREA`) are declared in `spacetimedb/src/schema.ts` and installed at publish time, not read from `.env`. `spacetime publish --help` lists how to pass them. Leaving them out is fine: the module plans with its heuristic and the feed stays off.
+The module's own settings (`SOLVER_URL`, `SOLVER_TOKEN`, `FEED_AREA`, `DEMO_MODE`) are declared in `spacetimedb/src/schema.ts` and installed at publish time, not read from `.env`. `spacetime publish --help` lists how to pass them. Leaving the solver settings out uses the built-in heuristic. The feed begins only when an operator calls `startFeeds`; its default area is TX. `DEMO_MODE` stays unset on the shared database.
 
 Generate the client bindings the services and map use, then run each service:
 
@@ -96,6 +95,22 @@ cd map && npm install && npm run generate && npm run serve
 The shared project database is `hackutd-535md` on Maincloud. The services use `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`. Open the map at `http://127.0.0.1:4178/index.html`; its live connection defaults to Maincloud. Query parameters `?uri=&db=` override the live target. The separate demo connection uses `ws://127.0.0.1:3000` and `hackutd-richardson`; `?demoUri=&demoDb=` overrides that target. See the dedicated demo setup below. The legacy `web/` client has been replaced by `map/`.
 
 The dispatcher portal is independent of the public map. See `dispatchers-portal/README.md` for its setup.
+
+### Dedicated demo database
+
+Public fixture operations are disabled unless the published module has `DEMO_MODE=isolated`. They also reject databases with real households, real vehicles, or an active incident. Keep that setting unset on Maincloud and on the services' operational database. Each assistance run resets only its own fixture records before replaying approval and acceptance.
+
+A separate local CLI configuration avoids replacing a saved Maincloud login. From the repository root, with the local server running:
+
+```bash
+mkdir -p .spacetime
+spacetime --config-path .spacetime/local-cli.toml login --server-issued-login http://127.0.0.1:3000 --no-browser
+DEMO_MODE=isolated spacetime --config-path .spacetime/local-cli.toml publish hackutd-richardson --module-path spacetimedb --server http://127.0.0.1:3000 --delete-data=never --no-config
+```
+
+The local identity file is gitignored. The map reads Maincloud while its two Run Demo choices use this separate database. It awaits successful database operations before starting playback and reports failed operations in the demo status. Opening the map never starts the live feed or writes to Maincloud.
+
+Before updating the shared database, follow [DATABASE_DEPLOYMENT.md](DATABASE_DEPLOYMENT.md).
 
 ```bash
 cd services && npm run messaging

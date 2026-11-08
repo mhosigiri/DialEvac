@@ -8,6 +8,7 @@ import { requestReplan } from "./dispatch";
 import { writePlan } from "./plans";
 import { isHazard, timingForHazard } from "./domain/hazard";
 import { metersBetween } from "./domain/geo";
+import { requireDemoDatabase } from "./demo-guard";
 import { MOBILITIES, vehicleCanServe } from "./domain/need";
 
 // The night. Issuing the warning stamps the clock, sets every in-zone home's deadline, starts the
@@ -58,7 +59,10 @@ export const endNight = spacetimedb.reducer((ctx) => {
 });
 
 // A stand-in town around the hazard origin: simulated households, a mixed fleet and a shelter.
-export const seedStandInTown = spacetimedb.reducer({ homes: t.u32() }, (ctx, { homes }) => seedTown(ctx, homes));
+export const seedStandInTown = spacetimedb.reducer({ homes: t.u32() }, (ctx, { homes }) => {
+  requireDemoDatabase(ctx);
+  seedTown(ctx, homes);
+});
 
 export function seedTown(ctx: Tx, homes: number) {
   const c = control(ctx);
@@ -105,7 +109,10 @@ export function warningAreaAround(lat: number, lng: number): [number, number][][
 
 // The public demo seed is intentionally map-only. Outreach and transport are follow-up workflows;
 // callers that exercise the full operational harness opt in through the internal helper.
-export const seedTornadoDemo = spacetimedb.reducer((ctx) => seedTornadoIncident(ctx, false));
+export const seedTornadoDemo = spacetimedb.reducer((ctx) => {
+  requireDemoDatabase(ctx);
+  seedTornadoIncident(ctx, false);
+});
 
 // One synthetic tornado incident: warning polygon, mixed simulated fleet, and a wheelchair request.
 export function seedTornadoIncident(ctx: Tx, activateOperations = true) {
