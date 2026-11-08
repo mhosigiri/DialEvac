@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Haven Floodplain</title>
-<meta name="description" content="Haven's Floodplain X-Ray map: real terrain, day and night by the sun, flood, thunderstorm and hurricane illustrations.">
+<meta name="description" content="Haven's Floodplain X-Ray map of the US: real terrain, day and night by the sun, FEMA flood zones, live radar, NHC storms and NWS warnings.">
 <link rel="stylesheet" href="assets/vendor/maplibre-gl.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -53,7 +53,7 @@
 </head>
 <body>
 <div id="map"></div><div id="fx"></div><canvas id="rain"></canvas>
-<section class="brand glass"><div class="k" id="kicker">Haven · Richardson, TX</div><h1>Floodplain X-Ray</h1><p>Real ground height from USGS elevation data. Low ground is deep teal. All households and hazards are illustrative.</p></section>
+<section class="brand glass"><div class="k" id="kicker">Haven · United States</div><h1>Floodplain X-Ray</h1><p>Real ground height from USGS elevation data, FEMA flood zones, live NEXRAD radar, NHC storms and NWS warnings. Low ground is deep teal.</p></section>
 <aside class="panel glass" aria-label="Map controls">
   <h4>Live warnings</h4>
   <div class="feed" id="feed" role="status" aria-live="polite">Connecting to live data…</div>
@@ -71,13 +71,11 @@
 <div class="hud glass" id="hud" hidden></div>
 <script src="assets/vendor/maplibre-gl.js"></script>
 <script src="assets/base-style.js"></script>
-<script src="assets/data.js"></script>
-<script src="assets/footprints.js"></script>
 <script src="https://unpkg.com/maplibre-contour@0.1.0/dist/index.min.js"></script>
 <script src="assets/sun.js"></script>
-<script src="assets/flood.js"></script>
-<script src="assets/style.js?v=1"></script>
-<script src="assets/app.js?v=4"></script>
+<script src="assets/style.js?v=2"></script>
+<script src="assets/app.js?v=5"></script>
+<script src="assets/relief.js"></script>
 <script src="assets/live.js"></script>
 <script src="assets/hazard-flood.js"></script>
 <script src="assets/hazard-storm.js"></script>

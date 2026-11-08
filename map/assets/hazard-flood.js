@@ -1,34 +1,39 @@
-// Hazard: creek flood. Water spreads only where the ground is low relative to the nearest named creek (HAND tiles).
+// Hazard: FEMA flood zones. The National Flood Hazard Layer, drawn in the map's own flood blues:
+// deep blue for the 1% annual chance (100-year) floodplain, light blue for the 0.2% (500-year) zone.
+// FEMA only draws these at street scale (1:36,000 or closer), so the layer starts at zoom 12.
 'use strict';
 (() => {
-  const base = location.href.replace(/[#?].*$/, '').replace(/[^/]*$/, '');
+  const EXPORT = 'https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/export';
+  const MIN_ZOOM = 12;
   const COL = {
-    night: { deep: 'rgba(16,110,215,0.78)', mid: 'rgba(40,170,255,0.62)', shore: 'rgba(190,245,255,0.95)', clear: 'rgba(60,200,255,0)', wet: '#9ff0ff' },
-    day: { deep: 'rgba(8,84,180,0.72)', mid: 'rgba(28,140,232,0.56)', shore: 'rgba(255,255,255,0.92)', clear: 'rgba(28,140,232,0)', wet: '#0a5bd3' },
+    night: { sfha: [16, 110, 215, 190], x500: [40, 170, 255, 105] },
+    day: { sfha: [8, 84, 180, 170], x500: [28, 140, 232, 95] },
   };
-  const expr = (L, c) => ['interpolate', ['linear'], ['elevation'], -1, c.deep, Math.max(L - 0.7, -0.5), c.mid, L, c.shore, L + 0.22, c.clear, 100, c.clear];
-  let mode = 'night', lastL = null, lastF = null;
+  const fill = (id, where, color) => ({
+    id, source: { type: 'mapLayer', mapLayerId: 28 }, definitionExpression: where,
+    drawingInfo: { renderer: { type: 'simple', symbol: { type: 'esriSFS', style: 'esriSFSSolid', color, outline: { type: 'esriSLS', style: 'esriSLSNull', color: [0, 0, 0, 0], width: 0 } } } },
+  });
+  // dpi 24 makes FEMA treat a zoom-12 tile as street scale; the 256 px image is unchanged.
+  const tiles = m => {
+    const q = new URLSearchParams({
+      bboxSR: '3857', imageSR: '3857', size: '256,256', dpi: '24', format: 'png32', transparent: 'true', f: 'image',
+      dynamicLayers: JSON.stringify([fill(101, "ZONE_SUBTY LIKE '0.2 PCT%'", COL[m].x500), fill(100, "SFHA_TF = 'T'", COL[m].sfha)]),
+    });
+    return [`${EXPORT}?bbox={bbox-epsg-3857}&${q}`];
+  };
   HAZARDS.push({
-    id: 'flood', label: 'Creek flood', note: 'HAND model', defaultOn: true,
-    addTo(s, m, P) {
-      mode = m; lastL = lastF = null;
-      s.sources.flood = { type: 'raster-dem', tiles: [base + 'tiles/flood/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, minzoom: 12, maxzoom: 14, bounds: FLOOD_BOUNDS,
-        attribution: 'Flood: illustrative HAND from USGS 3DEP + OSM creeks' };
+    id: 'flood', label: 'Flood zones', note: 'FEMA NFHL', defaultOn: true,
+    addTo(s, m) {
+      s.sources.flood = { type: 'raster', tiles: tiles(m), tileSize: 256, minzoom: MIN_ZOOM, maxzoom: 18,
+        attribution: 'Flood zones: <a href="https://www.fema.gov/flood-maps/national-flood-hazard-layer">FEMA NFHL</a>' };
       const i = s.layers.findIndex(l => l.id === 'hillshade');
-      s.layers.splice(i + 1, 0, { id: 'flood', type: 'color-relief', source: 'flood', minzoom: 11.5, paint: { 'color-relief-color': expr(1.5, COL[m]), 'color-relief-opacity': ['interpolate', ['linear'], ['zoom'], 11.5, 0, 12.3, 1] } });
-      const j = s.layers.findIndex(l => l.id === 'hh-shadow');
-      s.layers.splice(j, 0, { id: 'hh-wet', type: 'circle', source: 'hh', filter: ['<', ['get', 'hand'], 1.5], paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 5.5, 16.5, 13], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': COL[m].wet, 'circle-stroke-width': 2, 'circle-pitch-alignment': 'map',
-        'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 15.2, 0.9, 16, 0] } });
+      s.layers.splice(i + 1, 0, { id: 'flood', type: 'raster', source: 'flood', minzoom: MIN_ZOOM - 0.5,
+        paint: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], MIN_ZOOM - 0.5, 0, MIN_ZOOM + 0.4, 1], 'raster-fade-duration': 200 } });
     },
-    tick(map, t, dt, st) {
-      const peak = st.hazards.has('hurricane') ? 4.2 : st.hazards.has('storm') ? 3.3 : 2.8; // more rain, higher water
-      const L = st.motion ? 0.2 + (peak - 0.2) * (0.5 - 0.5 * Math.cos(t * 2 * Math.PI / 24)) : peak * 0.75;
-      if (lastL === null || Math.abs(L - lastL) > 0.02) { map.setPaintProperty('flood', 'color-relief-color', expr(L, COL[mode])); lastL = L; }
-      const F = Math.round(L * 10) / 10;
-      if (F !== lastF) { map.setFilter('hh-wet', ['<', ['get', 'hand'], F]); lastF = F; }
-      const n = HH_PTS.features.filter(f => f.properties.hand < L).length;
-      return `Creek flood · water ${L.toFixed(1)} m above creek beds · ${n} home${n === 1 ? '' : 's'} in water · illustrative`;
+    tick(map) {
+      return map.getZoom() < MIN_ZOOM - 0.5
+        ? 'FEMA flood zones · zoom in to street level to see them'
+        : 'FEMA flood zones · dark: 1% annual chance (100-year) · light: 0.2% (500-year)';
     },
   });
 })();

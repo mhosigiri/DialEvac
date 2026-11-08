@@ -161,8 +161,17 @@
   }
 
   // ---------- wiring ----------
+  function legend(m) {
+    const c = COL[m] || COL.night, P = PAL[m] || {};
+    const dot = (color, label) => `<span><i style="--c:${color};--stroke:${P.hhStroke || '#fff'}"></i>${label}</span>`;
+    return `<span><i style="--c:${c.warnFill};--stroke:${c.warn};border-radius:3px"></i>Tornado warning</span>`
+      + `<span><i style="--c:transparent;--stroke:${c.sim};border-style:dashed;border-radius:3px"></i>Simulated</span>`
+      + dot(c.available, 'Available') + dot(c.assigned, 'Assigned') + dot(c.en_route, 'En route');
+  }
+
   window.LIVE = {
     addTo,
+    legend,
     update(next) { snap = next; push(); renderPanel(); },
     setConnection(state, detail = '') { connection = state; connectionDetail = detail; renderPanel(); },
     _pure: { shownWarnings, parseGeometry, vehicleStatus, feedSummary, collections },

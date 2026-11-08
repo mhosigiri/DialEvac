@@ -1,16 +1,17 @@
 // App controller: light mode (auto by sun / day / night), hazards, motion, animation loop.
 'use strict';
 const $ = s => document.querySelector(s);
-const LAT = 32.977, LNG = -96.758;
+// Day and night follow the sun where the map is looking (the US center until the map exists).
+const here = () => { const c = map ? map.getCenter() : { lat: 39.2, lng: -98.6 }; return [c.lat, c.lng]; };
 const state = { pref: 'auto', mode: null, motion: !matchMedia('(prefers-reduced-motion: reduce)').matches, hazards: new Set(), ready: false, t0: performance.now() };
 const HAZARDS = []; // registered by hazard modules: { id, label, note, enable(map), disable(map), layers(mode), sources(), tick(map,t,dt) -> hud text }
 let map;
 
 // ---------- light mode ----------
-function sunMode(now = new Date()) { return SUN.elevation(now, LAT, LNG) > -0.833 ? 'day' : 'night'; }
+function sunMode(now = new Date()) { return SUN.elevation(now, ...here()) > -0.833 ? 'day' : 'night'; }
 function sunText() {
-  const now = new Date(), next = SUN.nextCrossing(now, LAT, LNG), fmt = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const el = SUN.elevation(now, LAT, LNG).toFixed(0);
+  const now = new Date(), next = SUN.nextCrossing(now, ...here()), fmt = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const el = SUN.elevation(now, ...here()).toFixed(0);
   const nxt = next ? `${next.rising ? 'sunrise' : 'sunset'} ${fmt(next.time)}` : '';
   return state.pref === 'auto' ? `Auto: sun ${el}° → ${PAL[state.mode].name.toLowerCase()} · ${nxt}` : `Manual: ${PAL[state.mode].name.toLowerCase()} · real ${nxt}`;
 }
@@ -18,8 +19,6 @@ function fullStyle(mode) {
   const s = buildStyle(mode);
   for (const h of HAZARDS) if (state.hazards.has(h.id)) h.addTo(s, mode, PAL[mode]);
   if (window.LIVE) LIVE.addTo(s, mode); // live warnings, simulated zone and vehicles (assets/live.js)
-  // MapLibre 5.6 globe projection mis-draws large animated canvas sources (the hurricane covers the map); flat Mercator is correct
-  if (state.hazards.has('hurricane')) s.projection = { type: 'mercator' };
   return s;
 }
 function applyMode(force) {
@@ -30,7 +29,7 @@ function applyMode(force) {
   for (const k of ['bg', 'ink', 'sub', 'line', 'accent']) r.setProperty('--' + k, P.ui[k]);
   r.setProperty('--bg-solid', P.ui.bg.replace(/rgba?\(([^)]+),[^,]+\)$/, 'rgb($1)')); r.setProperty('--fx', P.fx);
   document.body.style.background = P.bg;
-  $('#legend').innerHTML = Object.entries(P.status).map(([k, c]) => `<span><i style="--c:${c};--stroke:${P.hhStroke}"></i>${k[0].toUpperCase() + k.slice(1)}</span>`).join('') + '<span style="opacity:.65">· synthetic</span>';
+  $('#legend').innerHTML = window.LIVE ? LIVE.legend(mode) : '';
   document.querySelectorAll('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === state.pref)));
   $('#sun').textContent = sunText();
   if (map) restyle();
@@ -90,12 +89,14 @@ function boot() {
   map = new maplibregl.Map({ container: 'map', style: fullStyle(state.mode), center: [-97, 33], zoom: 1.8, maxPitch: 75, attributionControl: { compact: true } });
   window.__map = map;
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+  map.addControl(new maplibregl.GeolocateControl({ fitBoundsOptions: { maxZoom: 13 } }), 'bottom-right');
   map.on('styleimagemissing', e => { if (!map.hasImage(e.id) && window.makeIcon) { const m = makeIcon(e.id); if (m) map.addImage(e.id, m.img, m.opts); } });
   map.on('error', e => console.error('map error', e.error && e.error.message));
   map.once('load', () => { state.ready = true; setTimeout(() => map.flyTo({ ...HOME, duration: 6000, essential: true, curve: 1.6 }), 500); });
   renderHazards();
   setMotion(state.motion);
   setInterval(() => applyMode(false), 60000); // re-check the sun every minute
+  map.on('moveend', () => applyMode(false)); // the sun is checked where the map now looks
   requestAnimationFrame(tick);
 }
 window.addEventListener('DOMContentLoaded', boot);

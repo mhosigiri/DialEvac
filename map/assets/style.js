@@ -5,10 +5,14 @@
 const TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 const TERRARIUM = { type: 'raster-dem', tiles: [TERRARIUM_URL], encoding: 'terrarium', tileSize: 256, maxzoom: 15,
   attribution: 'Elevation: <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (USGS 3DEP)' };
-const HOME = { center: [-96.758, 32.977], zoom: 13.55, pitch: 38, bearing: -12 };
+const HOME = { center: [-98.6, 39.2], zoom: 3.75, pitch: 0, bearing: 0 }; // the contiguous US
+// The synthetic Richardson households and footprints. Real household locations are private and stay
+// off the public map; this switch keeps their styling for a later dispatcher-only view.
+const SHOW_DEMO_HOUSEHOLDS = false;
 
 // ---------- data ----------
-const FP = HOUSE_FP.features;
+if (typeof fc === 'undefined') var fc = features => ({ type: 'FeatureCollection', features });
+const FP = SHOW_DEMO_HOUSEHOLDS && typeof HOUSE_FP !== 'undefined' ? HOUSE_FP.features : [];
 // Status follows the flood: homes in the low creek zone (HAND <= 2.5 m) are urgent; resolved homes within 4 m become unreached again.
 function floodStatus(p, hand) { if (hand <= 2.5) return 'urgent'; if (hand <= 4 && p.status === 'resolved') return 'unreached'; return p.status; }
 for (const f of FP) { const hand = (typeof FLOOD_HAND !== 'undefined' ? FLOOD_HAND : {})[f.properties.id] ?? 60; f.properties.hand = hand; f.properties.status = floodStatus(f.properties, hand); }
@@ -74,16 +78,26 @@ function ramp(stops, v) {
   return stops.at(-1)[1];
 }
 // terraced hypsometric tint: flat color per band + darker rim at the band's top edge (reads as a contour)
-function bands(stops, from, to, step, rimK, rimW) {
-  const e = ['interpolate', ['linear'], ['elevation'], from - 50, ramp(stops, from)];
+// k scales the fixed offsets (designed for a 68 m range) when the palette is stretched to other terrain.
+function bands(stops, from, to, step, rimK, rimW, k = 1) {
+  const e = ['interpolate', ['linear'], ['elevation'], from - 50 * k, ramp(stops, from)];
   const dark = c => c.replace(/\d+/g, n => Math.round(n * rimK));
-  for (let v = from; v < to; v += step) {
+  for (let i = 0, v = from; i < Math.round((to - from) / step); i++, v = from + i * step) {
     const c = ramp(stops, v + step / 2);
-    if (rimW > 0) e.push(v, c, v + step - rimW - 0.15, c, v + step - rimW, dark(c), v + step - 0.04, dark(c));
-    else e.push(v, c, v + step - 0.08, c);
+    if (rimW > 0) e.push(v, c, v + step - rimW * k - 0.15 * k, c, v + step - rimW * k, dark(c), v + step - 0.04 * k, dark(c));
+    else e.push(v, c, v + step - 0.08 * k, c);
   }
-  e.push(to + 100, ramp(stops, to));
+  e.push(to + 100 * k, ramp(stops, to));
   return e;
+}
+// The palettes were drawn for Richardson's 160-228 m. RELIEF holds the elevation range on screen
+// (assets/relief.js samples it); the palette and band count stretch to fit, so any US terrain reads the same way.
+const RELIEF_BASE = [160, 228];
+let RELIEF = { lo: 160, hi: 228 };
+function reliefColors(P, fine) {
+  const { lo, hi } = RELIEF, k = (hi - lo) / (RELIEF_BASE[1] - RELIEF_BASE[0]);
+  const stops = P.relief.map(([v, c]) => [lo + (v - RELIEF_BASE[0]) * k, c]);
+  return fine ? bands(stops, lo, hi, (hi - lo) / 68, 1, 0, k) : bands(stops, lo, hi, (hi - lo) / 17, P.rim, 0.3, k);
 }
 
 // ---------- base recolor ----------
@@ -121,14 +135,13 @@ function buildStyle(mode) {
   s.sky = Object.assign({ 'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 8, 0] }, P.sky);
   s.sources.openmaptiles.attribution = (s.sources.openmaptiles.attribution || '') + ' · Footprints © OpenStreetMap contributors';
   s.sources.demRelief = TERRARIUM; s.sources.demHill = TERRARIUM;
-  s.sources.hh = { type: 'geojson', data: HH_PTS };
-  s.sources.fp = { type: 'geojson', data: FP_FC };
-  s.sources.fpBig = { type: 'geojson', data: FP_BIG };
+  s.sources.hh = { type: 'geojson', data: HH_PTS }; // empty unless SHOW_DEMO_HOUSEHOLDS
+  if (SHOW_DEMO_HOUSEHOLDS) { s.sources.fp = { type: 'geojson', data: FP_FC }; s.sources.fpBig = { type: 'geojson', data: FP_BIG }; }
   s.light = P.light;
   if (CONTOUR_URL) s.sources.contours = { type: 'vector', tiles: [CONTOUR_URL], maxzoom: 15 };
   insertAfter(s, 'background',
-    { id: 'relief', type: 'color-relief', source: 'demRelief', paint: { 'color-relief-color': bands(P.relief, 160, 228, 4, P.rim, 0.3), 'color-relief-opacity': zf(14, 15, 1, 0) } },
-    { id: 'relief-fine', type: 'color-relief', source: 'demRelief', minzoom: 13.8, paint: { 'color-relief-color': bands(P.relief, 160, 228, 1, 1, 0), 'color-relief-opacity': zf(14, 15, 0, 1) } },
+    { id: 'relief', type: 'color-relief', source: 'demRelief', paint: { 'color-relief-color': reliefColors(P, false), 'color-relief-opacity': zf(14, 15, 1, 0) } },
+    { id: 'relief-fine', type: 'color-relief', source: 'demRelief', minzoom: 13.8, paint: { 'color-relief-color': reliefColors(P, true), 'color-relief-opacity': zf(14, 15, 0, 1) } },
     { id: 'hillshade', type: 'hillshade', source: 'demHill', paint: { 'hillshade-method': 'multidirectional', 'hillshade-exaggeration': P.hill.exaggeration, 'hillshade-shadow-color': P.hill.shadow, 'hillshade-highlight-color': P.hill.highlight } });
   const ww = s.layers.find(l => l.id === 'waterway');
   if (ww) { const g = structuredClone(ww); g.id = 'waterway-glow'; g.paint = { 'line-color': P.glow, 'line-width': scaleW(ww.paint['line-width'], 3.2), 'line-blur': scaleW(ww.paint['line-width'], 2.6), 'line-opacity': P.glowOpacity }; s.layers.splice(s.layers.indexOf(ww), 0, g); }
@@ -155,5 +168,7 @@ function buildStyle(mode) {
       'circle-opacity': zf(15.2, 16, 1, 0), 'circle-stroke-opacity': zf(15.2, 16, 1, 0) } },
     { id: 'hh-label', type: 'symbol', source: 'hh', minzoom: 15.8, layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-offset': [0, -1.6], 'text-anchor': 'bottom', 'text-allow-overlap': false, 'symbol-sort-key': ['match', ['get', 'status'], 'urgent', 0, 'unreached', 1, 'assigned', 2, 3] },
       paint: { 'text-color': statusExpr(c), 'text-halo-color': P.halo, 'text-halo-width': 1.6, 'text-opacity': zf(15.8, 16.3, 0, 1) } });
+  // without the demo households the hh layers stay as empty anchors; the footprint extrusion needs its source
+  if (!SHOW_DEMO_HOUSEHOLDS) s.layers = s.layers.filter(l => l.id !== 'fp-3d');
   return s;
 }
