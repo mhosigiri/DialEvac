@@ -104,3 +104,30 @@ test("server urgency windows put an imminent ambulatory home before a later medi
   const rows = buildCases(tables({ households: [h1, h3, h2], requests: [request({ id: 3n, householdId: 3n, status: "closed" })] }));
   assert.deepEqual(rows.map(r => r.household.id), [2n, 1n, 3n]);
 });
+
+test("2,000-home joins index requests, calls and assignments instead of rescanning each table per household", () => {
+  let keyReads = 0;
+  function counted<T extends object>(row: T, key: keyof T): T {
+    return new Proxy(row, { get(target, property, receiver) {
+      if (property === key) keyReads++;
+      return Reflect.get(target, property, receiver);
+    } });
+  }
+  const households: Household[] = [], requests: Request[] = [], calls: Call[] = [], assignments: Assignment[] = [];
+  for (let i = 1; i <= 2000; i++) {
+    const id = BigInt(i);
+    households.push(home({ id }));
+    requests.push(counted(request({ id, householdId: id }), "householdId"));
+    calls.push(counted(call({ id, householdId: id }), "householdId"));
+    assignments.push(counted(assignment({ id, requestId: id, stopOrder: i }), "requestId"));
+  }
+  assert.equal(buildCases(tables({ households, requests, calls, assignments })).length, 2000);
+  assert(keyReads < 2000 * 20, `joins read keys ${keyReads} times`);
+});
+
+test("both cleared coverage accounts sort after unresolved cases even with nearer hazards", () => {
+  const rows = buildCases(tables({ households: [home({ id: 1n, canLeave: true, hazardAt: at(1) }), home({ id: 2n }), home({ id: 3n, hazardAt: at(1) })],
+    requests: [request({ id: 3n, householdId: 3n, status: "closed" })] }));
+  assert.equal(rows[0].household.id, 2n);
+  assert.deepEqual(new Set(rows.slice(1).map(row => row.account)), new Set(["leaving_on_own", "helped"]));
+});

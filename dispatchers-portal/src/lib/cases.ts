@@ -33,29 +33,34 @@ const live = (a: Assignment) => (LIVE_ASSIGNMENT as readonly string[]).includes(
 
 // Same drive estimate as the module; accepted pickups and boarding precede a newly appended stop.
 // This is an estimate from the available tables, not a road-closure or shelter-route guarantee.
-function matchFor(vehicle: Vehicle, household: Household, request: Request, tables: Tables) {
+function runFor(vehicle: Vehicle, assignments: readonly Assignment[], requests: ReadonlyMap<bigint, Request>, homes: ReadonlyMap<bigint, Household>) {
   let point: Point = vehicle, seconds = 0;
-  const run = tables.assignments.filter(a => a.vehicleId === vehicle.id && a.status === "accepted")
+  const run = assignments.filter(a => a.status === "accepted")
     .slice().sort((a, b) => a.stopOrder - b.stopOrder || byId(a, b));
   for (const assignment of run) {
-    const pickup = tables.requests.find(r => r.id === assignment.requestId);
-    const home = pickup && tables.households.find(h => h.id === pickup.householdId);
+    const pickup = requests.get(assignment.requestId);
+    const home = pickup && homes.get(pickup.householdId);
     if (!pickup || !home) return undefined; // Cannot estimate a run with missing stops safely.
     seconds += driveSeconds(point, home) + boardingSecondsFor(needsOf(pickup));
     point = home;
   }
-  seconds += driveSeconds(point, household);
-  const etaMinutes = Math.max(1, Math.ceil(seconds / 60));
   // Reserve after every live stop, which also clears the server's accepted-run boundary.
-  const lastStop = tables.assignments.filter(a => a.vehicleId === vehicle.id && live(a))
+  const lastStop = assignments.filter(live)
     .reduce((last, a) => Math.max(last, a.stopOrder), 0);
-  if (lastStop >= 0xffff_ffff || etaMinutes > 0xffff_ffff) return undefined;
+  if (lastStop >= 0xffff_ffff) return undefined;
+  return { point, seconds, stopOrder: lastStop + 1 };
+}
+
+function matchFor(vehicle: Vehicle, household: Household, request: Request, run: ReturnType<typeof runFor>) {
+  if (!run) return undefined;
+  const etaMinutes = Math.max(1, Math.ceil((run.seconds + driveSeconds(run.point, household)) / 60));
+  if (!Number.isFinite(etaMinutes) || etaMinutes > 0xffff_ffff) return undefined;
   return {
     vehicle,
     distanceMiles: Math.round(metersBetween(vehicle, household) / 1609.344 * 10) / 10,
     etaMinutes,
     canServe: vehicleCanServe(vehicle, needsOf(request)),
-    stopOrder: lastStop + 1,
+    stopOrder: run.stopOrder,
   };
 }
 
@@ -76,26 +81,56 @@ function summaryFor(home: Household, request: Request | undefined, call: Call | 
 
 export function buildCases(tables: Tables): CaseRow[] {
   const now = Date.now();
+  const homesById = new Map(tables.households.map(h => [h.id, h]));
+  const requestsById = new Map(tables.requests.map(r => [r.id, r]));
+  const requestsByHome = new Map(tables.requests.map(r => [r.householdId, r]));
+  const vehiclesById = new Map(tables.vehicles.map(v => [v.id, v]));
+  const callsByHome = new Map<bigint, Call>();
+  const assignmentsByRequest = new Map<bigint, Assignment>();
+  const assignmentsByVehicle = new Map<bigint, Assignment[]>();
+  for (const c of tables.calls) {
+    const previous = callsByHome.get(c.householdId);
+    const rank = (call: Call) => Number(OPEN_CALL.includes(call.phase));
+    if (!previous || rank(c) > rank(previous) || (rank(c) === rank(previous) &&
+      (c.queuedAt.microsSinceUnixEpoch > previous.queuedAt.microsSinceUnixEpoch ||
+        (c.queuedAt.microsSinceUnixEpoch === previous.queuedAt.microsSinceUnixEpoch && byId(c, previous) > 0)))) callsByHome.set(c.householdId, c);
+  }
+  for (const a of tables.assignments) {
+    if (!live(a)) continue;
+    const group = assignmentsByVehicle.get(a.vehicleId) ?? [];
+    group.push(a); assignmentsByVehicle.set(a.vehicleId, group);
+    const previous = assignmentsByRequest.get(a.requestId);
+    const rank = (a: Assignment) => ["proposed", "offered", "accepted"].indexOf(a.status);
+    if (!previous || rank(a) > rank(previous) || (rank(a) === rank(previous) && byId(a, previous) > 0)) assignmentsByRequest.set(a.requestId, a);
+  }
+  // Resolve each run once, rather than scanning it and looking up its households per case.
+  const runs = new Map(tables.vehicles.map(v => [v.id, runFor(v, assignmentsByVehicle.get(v.id) ?? [], requestsById, homesById)]));
   return tables.households.map(household => {
-    const request = tables.requests.find(r => r.householdId === household.id);
-    const assignment = request?.status === "closed" ? undefined : tables.assignments.filter(a => a.requestId === request?.id && live(a))
-      .slice().sort((a, b) => ["accepted", "offered", "proposed"].indexOf(a.status) - ["accepted", "offered", "proposed"].indexOf(b.status) || byId(b, a))[0];
-    const calls = tables.calls.filter(c => c.householdId === household.id);
-    const call = calls.slice().sort((a, b) => Number(OPEN_CALL.includes(b.phase)) - Number(OPEN_CALL.includes(a.phase)) || byId(b, a))[0];
+    const request = requestsByHome.get(household.id);
+    const assignment = request && request.status !== "closed" ? assignmentsByRequest.get(request.id) : undefined;
+    const call = callsByHome.get(household.id);
     // reach=calling is the persisted ladder state; active calls also count exactly as in sweepCoverage.
     // The five-table input cannot observe scheduled reach_step rows directly.
     const account = accountFor({ canLeave: household.canLeave, reach: household.reach, request,
-      ladderRunning: household.reach === "calling" || calls.some(c => OPEN_CALL.includes(c.phase)) });
-    const resolved = request?.status === "closed" || account === "leaving_on_own";
+      ladderRunning: household.reach === "calling" || !!call && OPEN_CALL.includes(call.phase) });
+    const resolved = account === "helped" || account === "leaving_on_own";
     const record = request ?? household;
     const deadline = household.hazardAt ?? request?.deadlineAt;
     const score = scoreUrgency({ ...needsOf(record), minutesLeft: deadline ? (Number(deadline.toMillis()) - now) / 60_000 : Infinity, needProbability: household.needProbability });
     const urgency: CaseRow["urgency"] = resolved ? "low" : request?.escalation || score >= 300 || record.mobility === "bedbound" ? "critical"
       : score >= 200 || record.oxygen || record.mobility === "wheelchair" ? "high"
       : score >= 100 || request || account === "door_check" || account === "reaching" || account === "overlooked" ? "medium" : "low";
-    const candidates = request && !resolved ? tables.vehicles.map(v => matchFor(v, household, request, tables)).filter(m => m !== undefined)
-      .sort((a, b) => Number(b.canServe) - Number(a.canServe) || a.etaMinutes - b.etaMinutes || a.distanceMiles - b.distanceMiles || byId(a.vehicle, b.vehicle)) : [];
-    const match = assignment ? candidates.find(m => m.vehicle.id === assignment.vehicleId) : candidates[0];
+    let match: ReturnType<typeof matchFor>;
+    if (request && !resolved) {
+      const candidates = assignment ? [vehiclesById.get(assignment.vehicleId)].filter(v => v !== undefined) : tables.vehicles;
+      for (const v of candidates) {
+        const candidate = matchFor(v, household, request, runs.get(v.id));
+        if (candidate && (!match || Number(match.canServe) - Number(candidate.canServe) < 0 ||
+          (candidate.canServe === match.canServe && (candidate.etaMinutes < match.etaMinutes ||
+            (candidate.etaMinutes === match.etaMinutes && (candidate.distanceMiles < match.distanceMiles ||
+              (candidate.distanceMiles === match.distanceMiles && byId(candidate.vehicle, match.vehicle) < 0))))))) match = candidate;
+      }
+    }
     let action: CaseAction = { kind: "none" };
     if (!resolved && request) {
       if (assignment?.status === "proposed") action = { kind: "approve", assignmentId: assignment.id };
