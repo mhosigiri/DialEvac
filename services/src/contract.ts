@@ -8,6 +8,7 @@ export type CallbackRow = { id: bigint; householdId: bigint; state: string; line
 
 export interface Contract {
   household(id: bigint): HouseholdRow | undefined;
+  call(id: bigint): CallRow | undefined;
   findCallByProvider(providerId: string): CallRow | undefined;
   callback(id: bigint): CallbackRow | undefined;
   // Each fires for rows already in that state when the subscription applies, then for new ones.
@@ -23,5 +24,8 @@ export interface Contract {
   callAnswered(callId: bigint): Promise<void>;
   callEnded(callId: bigint, outcome: string): Promise<void>;
   recordDigit(callId: bigint, digit: string): Promise<void>;
+  // A resident called in: the module finds the home by phone. choice is "" when they gave no clear answer.
+  inboundCallEnded(phone: string, providerId: string, answer: { choice: string; people?: number; oxygen?: boolean }): Promise<void>;
+  updateRecord(householdId: bigint, patch: { people?: number; oxygen?: boolean }, source: string): Promise<void>;
   markCallback(callbackId: bigint, state: "placed" | "played" | "unanswered"): Promise<void>;
 }

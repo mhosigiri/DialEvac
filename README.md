@@ -25,7 +25,7 @@ There is no UI yet.
 | Folder | What it holds |
 | --- | --- |
 | `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
-| `services/` | Two Node processes that talk to the outside world. `voice.ts` places Twilio calls and answers their webhooks. `messaging.ts` sends and receives Photon messages. |
+| `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
 
 ## How a night runs
@@ -72,6 +72,12 @@ cd services && npm install && npm run generate
 cd services && npm run messaging
 ```
 
+Calls need a public HTTPS address for the voice service (`VOICE_PUBLIC_URL`, a tunnel to port 8080 works), the Photon SIP values, and `ELEVENLABS_API_KEY`. Set the Photon voice profile's digest algorithm to SHA-256, then let the setup script create the ElevenLabs webhook, agent and imported number. It writes their IDs to `.env`, and rerunning it updates rather than duplicates. For incoming calls, set the Photon profile's inbound destination to `sips:sip.rtc.elevenlabs.io:5061` (TLS, no credentials):
+
+```bash
+cd services && npm run setup:elevenlabs
+```
+
 ```bash
 cd services && npm run voice
 ```
@@ -90,8 +96,8 @@ cd dispatch && uv run python server.py
 
 | Command | What it proves |
 | --- | --- |
-| `cd spacetimedb && npm test` | The contract: status moves, compatibility, frozen runs, one live offer, idempotent callbacks, correction handling, solver fallback, road closures, Photon replies, keypad digits and NWS zones. Also urgency ranking, coverage, and a 75-minute night of 2,000 homes at 1 call per second. Runs in SpacetimeDB's own test harness. |
-| `cd services && npm test` | Photon delivery respects the allowlist, Twilio signatures validate, TwiML escapes text, and the call queue places the most urgent call first. |
+| `cd spacetimedb && npm test` | The contract: status moves, compatibility, frozen runs, one live offer, idempotent callbacks, correction handling, solver fallback, road closures, Photon replies, keypad digits, incoming calls and NWS zones. Also urgency ranking, coverage, and a 75-minute night of 2,000 homes at 1 call per second. Runs in SpacetimeDB's own test harness. |
+| `cd services && npm test` | Photon delivery respects the allowlist, Twilio and ElevenLabs signatures validate, a spoken answer is recorded like a pressed key, an incoming call is matched by caller number, a call with no clear answer is not counted as reached, and the call queue places the most urgent call first. |
 | `cd services && npm run typecheck` | Needs `npm run generate` first. |
 | `cd dispatch && uv run --with pytest pytest tests` | The solver's routes are feasible. |
 
@@ -103,6 +109,7 @@ The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That 
 
 ## Not built yet
 
-- The conversational voice agent (Claude reading each turn, Cartesia speech). Survey calls use keypad answers until it is ported. Its keys are in `.env.example`.
+- Spanish calls. The ElevenLabs agent speaks English only for now.
+- Photon messaging on the Beta API. `messaging.ts` still uses the Stable SDK, which rejects Beta (`pho_prj_`) projects.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
 - Any UI.

@@ -243,6 +243,29 @@ export const recordDigit = spacetimedb.reducer({ callId: t.u64(), digit: t.strin
   if (handleDigit(ctx, callId, digit)) endCall(ctx, callId, "answered");
 });
 
+// A resident who called the response line. The call is logged against the home with the caller's
+// number, and a clear answer fills the record like a pressed key. A conversation already logged is
+// skipped, so a retried webhook changes nothing.
+export function handleInboundCall(tx: Tx, phone: string, providerId: string, answer: { choice: string; people?: number; oxygen?: boolean }) {
+  const home = [...tx.db.household.phone.filter(phone)][0];
+  if (!home) {
+    audit(tx, "call", `call from an unknown number ending ${phone.slice(-4)}`);
+    return undefined;
+  }
+  const logged = [...tx.db.call.householdId.filter(home.id)].find((c) => c.providerId === providerId);
+  if (logged) return logged;
+  const call = tx.db.call.insert({ id: 0n, householdId: home.id, purpose: "inbound", phase: "live", attempt: 0, priority: 0, outcome: undefined, providerId, queuedAt: tx.timestamp, endedAt: undefined });
+  const patch = REPLIES[answer.choice];
+  if (patch) applyRecord(tx, home, { ...patch, people: answer.people, oxygen: answer.oxygen }, "voice");
+  endCall(tx, call.id, "answered");
+  return call;
+}
+
+export const inboundCallEnded = spacetimedb.reducer(
+  { phone: t.string(), providerId: t.string(), choice: t.string(), people: t.option(t.u32()), oxygen: t.option(t.bool()) },
+  (ctx, { phone, providerId, choice, people, oxygen }) => void handleInboundCall(ctx, phone, providerId, { choice, people, oxygen }),
+);
+
 export const receiveMessage = spacetimedb.reducer(
   { phone: t.string(), body: t.string(), providerId: t.string() },
   (ctx, { phone, body, providerId }) => handleReply(ctx, phone, body, providerId),

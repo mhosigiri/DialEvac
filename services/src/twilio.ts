@@ -3,17 +3,29 @@ import { env } from "./env";
 
 // The Twilio REST call and webhook signature check. Only the voice service imports this.
 
-export async function placeCall(to: string, twimlUrl: string, statusUrl: string) {
-  const sid = env.twilio.accountSid();
-  const auth = Buffer.from(`${env.twilio.apiKeySid()}:${env.twilio.apiKeySecret()}`).toString("base64");
+// With Photon SIP configured, Twilio still runs the call (TwiML, keypad, status callbacks) but dials
+// through Photon, which places it from the Photon number. Photon authorizes From against the profile.
+export function callParams(to: string, twimlUrl: string, statusUrl: string) {
+  const sip = env.photon.sip();
   const body = new URLSearchParams({
-    To: to,
-    From: env.twilio.fromNumber(),
+    To: sip ? `sip:${to}@${sip.server};transport=tls` : to,
+    From: env.voice.fromNumber(),
     Url: twimlUrl,
     StatusCallback: statusUrl,
     StatusCallbackEvent: "completed",
   });
   body.append("StatusCallbackEvent", "answered");
+  if (sip) {
+    body.set("SipAuthUsername", sip.username);
+    body.set("SipAuthPassword", sip.password);
+  }
+  return body;
+}
+
+export async function placeCall(to: string, twimlUrl: string, statusUrl: string) {
+  const sid = env.twilio.accountSid();
+  const auth = Buffer.from(`${env.twilio.apiKeySid()}:${env.twilio.apiKeySecret()}`).toString("base64");
+  const body = callParams(to, twimlUrl, statusUrl);
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
     method: "POST",
     headers: { authorization: `Basic ${auth}`, "content-type": "application/x-www-form-urlencoded" },
