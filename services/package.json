@@ -7,9 +7,11 @@
     "messaging": "tsx --env-file=../.env src/messaging.ts",
     "voice": "tsx --env-file=../.env src/voice.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.77.0",
     "spacetimedb": "2.14.1",
     "spectrum-ts": "12.15.0"
   },

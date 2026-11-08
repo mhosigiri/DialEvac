@@ -22,7 +22,7 @@ export function connect(): Promise<Contract> {
         conn
           .subscriptionBuilder()
           .onApplied(() => resolve(contractFor(conn)))
-          .onError((_ctx, error) => reject(error))
+          .onError((ctx) => reject(ctx.event ?? new Error("subscription failed")))
           .subscribe(QUERIES);
       })
       .onConnectError((_ctx, error) => reject(error))
@@ -35,6 +35,7 @@ function contractFor(conn: DbConnection): Contract {
   const r = conn.reducers;
   return {
     household: (id) => db.household.id.find(id) ?? undefined,
+    call: (id) => db.call.id.find(id) ?? undefined,
     findCallByProvider: (providerId) => [...db.call.iter()].find((c) => c.providerId === providerId),
     callback: (id) => db.callback.id.find(id) ?? undefined,
     onQueuedMessage(handler) {
@@ -57,6 +58,14 @@ function contractFor(conn: DbConnection): Contract {
     callAnswered: (callId) => r.callAnswered({ callId }),
     callEnded: (callId, outcome) => r.callEnded({ callId, outcome }),
     recordDigit: (callId, digit) => r.recordDigit({ callId, digit }),
+    inboundCallEnded: (phone, providerId, answer) =>
+      r.inboundCallEnded({ phone, providerId, choice: answer.choice, people: answer.people, oxygen: answer.oxygen }),
+    updateRecord: (householdId, patch, source) =>
+      r.updateRecord({
+        householdId,
+        patch: { canLeave: undefined, mobility: undefined, assistance: undefined, people: patch.people, oxygen: patch.oxygen },
+        source,
+      }),
     markCallback: (callbackId, state) => r.markCallback({ callbackId, state }),
   };
 }

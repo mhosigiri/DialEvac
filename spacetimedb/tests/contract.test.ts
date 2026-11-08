@@ -4,7 +4,7 @@ import { createModuleTestHarness, TestAuth } from "spacetimedb/server/test-utils
 import * as moduleExports from "../src/index";
 import { spacetimedb } from "../src/schema";
 import { control, type Tx } from "../src/core";
-import { applyRecord, applyZone, handleDigit, handleReply, insertHousehold } from "../src/households";
+import { applyRecord, applyZone, handleDigit, handleInboundCall, handleReply, insertHousehold } from "../src/households";
 import { approve, writePlan } from "../src/plans";
 import { accept } from "../src/offers";
 import { heartbeat, seedTornadoIncident, seedTown, startNight } from "../src/loop";
@@ -331,5 +331,48 @@ describe("keypad answers on a survey call", () => {
     expect(tx((ctx) => handleDigit(ctx, callId, "4"))).toBe(true);
     expect(tx((ctx) => handleDigit(ctx, callId, "9"))).toBe(false);
     tx((ctx) => expect([...ctx.db.request.iter()][0].mobility).toBe("bedbound"));
+  });
+});
+
+describe("a resident who calls the response line", () => {
+  it("is matched by phone, logged once, and their answer fills the record", () => {
+    const { tx } = harness();
+    const homeId = tx((ctx) => {
+      ctx.db.control.id.update({ ...control(ctx), warningAt: ctx.timestamp });
+      const home = insertHousehold(ctx, { riderId: "r4", name: "Di", address: "4 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550196", language: "en", mobility: "walks", assistance: "none", simulated: false });
+      applyZone(ctx, ZONE);
+      return home.id;
+    });
+    const answer = { choice: "3", people: 2, oxygen: true };
+    tx((ctx) => handleInboundCall(ctx, "+12145550196", "conv_1", answer));
+    tx((ctx) => handleInboundCall(ctx, "+12145550196", "conv_1", answer));
+    tx((ctx) => {
+      const home = ctx.db.household.id.find(homeId)!;
+      expect([home.reach, home.canLeave, home.mobility, home.people, home.oxygen]).toEqual(["reached", false, "wheelchair", 2, true]);
+      expect(ctx.db.request.householdId.find(homeId)!.mobility).toBe("wheelchair");
+      const calls = [...ctx.db.call.householdId.filter(homeId)];
+      expect(calls.map((c) => [c.purpose, c.phase, c.outcome, c.providerId])).toEqual([["inbound", "ended", "answered", "conv_1"]]);
+    });
+  });
+
+  it("without a clear answer is logged but leaves the home unreached", () => {
+    const { tx } = harness();
+    const homeId = tx((ctx) => insertHousehold(ctx, { riderId: "r5", name: "Ed", address: "5 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550195", language: "en", mobility: "walks", assistance: "none", simulated: false }).id);
+    tx((ctx) => handleInboundCall(ctx, "+12145550195", "conv_2", { choice: "", people: 4 }));
+    tx((ctx) => {
+      const home = ctx.db.household.id.find(homeId)!;
+      expect(home.reach).not.toBe("reached");
+      expect(home.people).not.toBe(4);
+      expect(ctx.db.call.count()).toBe(1n);
+    });
+  });
+
+  it("from an unknown number is audited, not attached to anyone", () => {
+    const { tx } = harness();
+    expect(tx((ctx) => handleInboundCall(ctx, "+12145550000", "conv_3", { choice: "1" }))).toBeUndefined();
+    tx((ctx) => {
+      expect(ctx.db.call.count()).toBe(0n);
+      expect([...ctx.db.auditLog.iter()].at(-1)!.message).toContain("unknown number ending 0000");
+    });
   });
 });
