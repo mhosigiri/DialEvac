@@ -1,6 +1,7 @@
 import { spacetimedb, reachStep } from "./schema";
 import { accountFor, ACCOUNTS, type Account } from "./domain/coverage";
-import { audit, minutesLeft, queueMessage, runAt, urgencyOf, type Household, type Tx } from "./core";
+import { audit, control, minutesLeft, queueMessage, runAt, urgencyOf, type Household, type Tx } from "./core";
+import { doorCheckLeadMinutes } from "./domain/hazard";
 import { SURVEY_ASK, SURVEY_INTRO } from "./domain/script";
 
 // Silence never counts as safe. Each home in the zone gets a survey text at once (texts go out in
@@ -18,7 +19,6 @@ const STEPS = [
 ] as const;
 
 const WAIT_FOR_CALL_SECONDS = 15;
-const DOOR_CHECK_LEAD_MINUTES = 25;
 const OPEN_CALL = ["queued", "ringing", "live"];
 
 export function startReachLadder(tx: Tx, home: Household) {
@@ -39,7 +39,7 @@ export function runLadderStep(tx: Tx, householdId: bigint, stepIndex: number) {
   if (!home || home.reach !== "calling" || !home.inZone) return;
   const step = STEPS[stepIndex];
   if (!step) return;
-  if (minutesLeft(tx, home) <= DOOR_CHECK_LEAD_MINUTES) return sendToDoorCheck(tx, home, "hazard close and still unreached");
+  if (minutesLeft(tx, home) <= doorCheckLeadMinutes(control(tx).hazard)) return sendToDoorCheck(tx, home, "hazard close and still unreached");
   if (step.kind !== "message" && hasOpenCall(tx, home.id)) {
     tx.db.reachStep.insert({ scheduledId: 0n, scheduledAt: runAt(tx, WAIT_FOR_CALL_SECONDS), householdId, step: stepIndex });
     return;

@@ -1,12 +1,12 @@
 import { SenderError, t } from "spacetimedb/server";
 import { spacetimedb, tickSchedule } from "./schema";
 import { audit, CONTROL_ID, control, hazardAtFor, liveAssignments, moveRequest, needsOf, nowMs, requestStatus, runAt, type Tx } from "./core";
-import { applyRecord, endCall, insertHousehold } from "./households";
+import { applyRecord, applyZone, endCall, insertHousehold } from "./households";
 import { accept } from "./offers";
 import { startReachLadder, sweepCoverage } from "./reach";
 import { requestReplan } from "./dispatch";
 import { writePlan } from "./plans";
-import { isHazard } from "./domain/hazard";
+import { isHazard, timingForHazard } from "./domain/hazard";
 import { metersBetween } from "./domain/geo";
 import { MOBILITIES, vehicleCanServe } from "./domain/need";
 
@@ -26,7 +26,8 @@ export function startNight(ctx: Tx, hazard: string) {
   if (!isHazard(hazard)) throw new SenderError(`unknown hazard ${hazard}`);
   const c = control(ctx);
   const generation = c.generation + 1n;
-  ctx.db.control.id.update({ ...c, hazard, warningAt: ctx.timestamp, generation });
+  const timing = timingForHazard(hazard);
+  ctx.db.control.id.update({ ...c, hazard, warningAt: ctx.timestamp, generation, ...timing });
   for (const home of ctx.db.household.inZone.filter(true)) {
     const updated = ctx.db.household.id.update({ ...home, hazardAt: hazardAtFor(ctx, home) });
     startReachLadder(ctx, updated);
@@ -90,6 +91,50 @@ export function seedTown(ctx: Tx, homes: number) {
     ctx.db.shelter.insert({ id: 0n, name: "Stand-in shelter", lat: c.originLat - 0.04, lng: c.originLng - 0.04, capacity: 500 });
   }
   audit(ctx, "seed", `stand-in town: ${homes} homes, ${fleet.length} vehicles, 1 shelter`);
+}
+
+const TORNADO_RIDER = "sim-tornado-wheelchair";
+const TORNADO_ZONE = "sim-tornado";
+
+// GeoJSON polygon around the control origin. ~3 km box, large enough for the stand-in town.
+export function warningAreaAround(lat: number, lng: number): [number, number][][] {
+  const dLat = 0.03;
+  const dLng = 0.03;
+  return [[[lng - dLng, lat - dLat], [lng + dLng, lat - dLat], [lng + dLng, lat + dLat], [lng - dLng, lat + dLat], [lng - dLng, lat - dLat]]];
+}
+
+export const seedTornadoDemo = spacetimedb.reducer((ctx) => seedTornadoIncident(ctx));
+
+// One synthetic tornado incident: warning polygon, mixed simulated fleet, and a wheelchair request.
+export function seedTornadoIncident(ctx: Tx) {
+  const already = Boolean(ctx.db.household.riderId.find(TORNADO_RIDER));
+  seedTown(ctx, already ? 0 : 12);
+  const c = control(ctx);
+  const rings = warningAreaAround(c.originLat, c.originLng);
+  const zone = ctx.db.zone.externalId.find(TORNADO_ZONE);
+  const zoneRow = { source: "stand-in", name: "Simulated tornado warning", event: "Tornado Warning", severity: "Extreme", rings: JSON.stringify(rings), active: true, at: ctx.timestamp };
+  if (zone) ctx.db.zone.id.update({ ...zone, ...zoneRow });
+  else ctx.db.zone.insert({ id: 0n, externalId: TORNADO_ZONE, ...zoneRow });
+  applyZone(ctx, rings);
+  let home = ctx.db.household.riderId.find(TORNADO_RIDER);
+  if (!home) {
+    home = insertHousehold(ctx, {
+      riderId: TORNADO_RIDER,
+      name: "Simulated wheelchair household",
+      address: "1 Tornado Ave",
+      lat: c.originLat + 0.008,
+      lng: c.originLng + 0.004,
+      phone: "+15557001001",
+      language: "en",
+      mobility: "wheelchair",
+      assistance: "one_person",
+      simulated: true,
+    });
+    applyZone(ctx, rings);
+  }
+  ctx.db.control.id.update({ ...control(ctx), simulateDispatch: true, simulateDrivers: true, autoApprove: true, simulateVoice: false });
+  if (!control(ctx).warningAt || control(ctx).hazard !== "tornado") startNight(ctx, "tornado");
+  applyRecord(ctx, ctx.db.household.id.find(home.id)!, { canLeave: false, people: 2, mobility: "wheelchair", assistance: "one_person" }, "stand-in");
 }
 
 // Most simulated homes walk. The prior is what a records match would know: high for the homes that
