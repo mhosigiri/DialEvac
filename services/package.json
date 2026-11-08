@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.77.0",
-    "spacetimedb": "2.14.1",
-    "spectrum-ts": "12.15.0"
+    "spacetimedb": "2.14.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

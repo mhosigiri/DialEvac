@@ -12,7 +12,7 @@ export const init = spacetimedb.init((ctx) => {
 
 export { proposePlan } from "./plans";
 export { approveOffer, acceptOffer, declineOffer, cancelByDriver, expireOffer } from "./offers";
-export { importRiders, setZone, updateRecord, escalate, claimCall, callAnswered, callEnded, addTranscriptLine, markCallback, recordDigit, inboundCallEnded, claimMessage, messageSent, messageFailed, receiveMessage, closeRequest } from "./households";
+export { importRiders, setZone, updateRecord, escalate, claimCall, callAnswered, callEnded, addTranscriptLine, markCallback, recordDigit, inboundCallEnded, claimMessage, messageSent, messageFailed, messageWaiting, receiveMessage, closeRequest } from "./households";
 export { runReachStep } from "./reach";
 export { closeRoad, reopenRoad } from "./roads";
 export { replan } from "./dispatch";

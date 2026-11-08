@@ -9,8 +9,6 @@ export type CallbackRow = { id: bigint; householdId: bigint; state: string; line
 export interface Contract {
   household(id: bigint): HouseholdRow | undefined;
   call(id: bigint): CallRow | undefined;
-  findCallByProvider(providerId: string): CallRow | undefined;
-  callback(id: bigint): CallbackRow | undefined;
   // Each fires for rows already in that state when the subscription applies, then for new ones.
   onQueuedMessage(handler: (row: MessageRow) => void): void;
   onQueuedCall(handler: (row: CallRow) => void): void;
@@ -19,9 +17,10 @@ export interface Contract {
   claimMessage(messageId: bigint): Promise<void>;
   messageSent(messageId: bigint, providerId: string): Promise<void>;
   messageFailed(messageId: bigint, error: string): Promise<void>;
+  // Photon refused it until the resident texts the line; the module sends it when they do.
+  messageWaiting(messageId: bigint, error: string): Promise<void>;
   receiveMessage(phone: string, body: string, providerId: string): Promise<void>;
   claimCall(callId: bigint, providerId: string): Promise<void>;
-  callAnswered(callId: bigint): Promise<void>;
   callEnded(callId: bigint, outcome: string): Promise<void>;
   recordDigit(callId: bigint, digit: string): Promise<void>;
   // A resident called in: the module finds the home by phone. choice is "" when they gave no clear answer.

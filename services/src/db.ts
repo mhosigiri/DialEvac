@@ -26,6 +26,12 @@ export function connect(): Promise<Contract> {
           .subscribe(QUERIES);
       })
       .onConnectError((_ctx, error) => reject(error))
+      // A dropped connection leaves the runners deaf and every reducer call hanging, so stop loudly
+      // and let the service be restarted rather than run on silently.
+      .onDisconnect((_ctx, error) => {
+        console.error("[db] lost the SpacetimeDB connection", error ?? "");
+        process.exit(1);
+      })
       .build();
   });
 }
@@ -36,8 +42,6 @@ function contractFor(conn: DbConnection): Contract {
   return {
     household: (id) => db.household.id.find(id) ?? undefined,
     call: (id) => db.call.id.find(id) ?? undefined,
-    findCallByProvider: (providerId) => [...db.call.iter()].find((c) => c.providerId === providerId),
-    callback: (id) => db.callback.id.find(id) ?? undefined,
     onQueuedMessage(handler) {
       for (const row of db.message.iter()) if (row.state === "queued") handler(row as MessageRow);
       db.message.onInsert((_ctx, row) => row.state === "queued" && handler(row as MessageRow));
@@ -53,9 +57,9 @@ function contractFor(conn: DbConnection): Contract {
     claimMessage: (messageId) => r.claimMessage({ messageId }),
     messageSent: (messageId, providerId) => r.messageSent({ messageId, providerId }),
     messageFailed: (messageId, error) => r.messageFailed({ messageId, error }),
+    messageWaiting: (messageId, error) => r.messageWaiting({ messageId, error }),
     receiveMessage: (phone, body, providerId) => r.receiveMessage({ phone, body, providerId }),
     claimCall: (callId, providerId) => r.claimCall({ callId, providerId }),
-    callAnswered: (callId) => r.callAnswered({ callId }),
     callEnded: (callId, outcome) => r.callEnded({ callId, outcome }),
     recordDigit: (callId, digit) => r.recordDigit({ callId, digit }),
     inboundCallEnded: (phone, providerId, answer) =>

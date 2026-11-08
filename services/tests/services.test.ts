@@ -3,12 +3,10 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 process.env.CONTACT_ALLOWLIST = "+12142000100,+14692001234";
-process.env.TWILIO_AUTH_TOKEN = "test-token";
-process.env.TWILIO_VALIDATE_SIGNATURE = "true";
 
-const { deliver } = await import("../src/messaging");
-const { callParams, gatherTwiml, sayTwiml, validSignature } = await import("../src/twilio");
-const { outcomeFor, handleElevenlabsEvent, startRunners } = await import("../src/voice");
+const { deliver, perResident, pollReplies } = await import("../src/messaging");
+const { PhotonError, photonClient, textsFrom } = await import("../src/photon");
+const { handleElevenlabsEvent, startRunners } = await import("../src/voice");
 const { surveyAnswer, verifiedEvent } = await import("../src/elevenlabs");
 type Contract = import("../src/contract").Contract;
 
@@ -19,16 +17,19 @@ function fakeDb(phone: string) {
     claimMessage: async () => void calls.push("claim"),
     messageSent: async (_id: bigint, providerId: string) => void calls.push(`sent:${providerId}`),
     messageFailed: async (_id: bigint, error: string) => void calls.push(`failed:${error}`),
+    messageWaiting: async () => void calls.push("waiting"),
   } as unknown as Contract;
   return { db, calls };
 }
 
 const row = { id: 7n, householdId: 1n, direction: "out", state: "queued", body: "hello" };
 
-test("an allowlisted number is claimed, sent and marked sent", async () => {
+test("an allowlisted number is claimed, sent once per row and marked sent", async () => {
   const { db, calls } = fakeDb("+14692001234");
-  await deliver(db, row, async () => "imsg-1");
+  let key = "";
+  await deliver(db, row, async (_phone, _body, idempotencyKey) => ((key = idempotencyKey), "imsg-1"));
   assert.deepEqual(calls, ["claim", "sent:imsg-1"]);
+  assert.equal(key, "hackutd-message-7");
 });
 
 test("a number off the allowlist is never sent to", async () => {
@@ -47,24 +48,108 @@ test("a failed send is recorded as failed", async () => {
   assert.deepEqual(calls, ["claim", "failed:no iMessage"]);
 });
 
-test("Twilio signatures validate per Twilio's scheme and reject tampering", () => {
-  const url = "https://voice.example.test/twilio/digit?callId=3";
-  const params = new URLSearchParams({ Digits: "3", CallSid: "CA1" });
-  const signature = createHmac("sha1", "test-token").update(`${url}CallSidCA1Digits3`).digest("base64");
-  assert.equal(validSignature(url, params, signature), true);
-  assert.equal(validSignature(url, new URLSearchParams({ Digits: "4", CallSid: "CA1" }), signature), false);
-  assert.equal(validSignature(url, params, undefined), false);
+test("a text Photon refuses until the resident writes first waits instead of failing", async () => {
+  const { db, calls } = fakeDb("+14692001234");
+  await deliver(db, row, async () => {
+    throw new PhotonError(403, "SHARED_LINE_INBOUND_REQUIRED", "The recipient must message this shared line before it can reply");
+  });
+  assert.deepEqual(calls, ["claim", "waiting"]);
 });
 
-test("TwiML escapes spoken text and gathers one digit", () => {
-  assert.match(sayTwiml("Rosa & Ana <now>", "es"), /language="es-US">Rosa &#38; Ana &#60;now&#62;</);
-  assert.match(gatherTwiml("Press 1", "https://x.test/d?callId=1&a=b", "en"), /numDigits="1".*action="https:\/\/x.test\/d\?callId=1&#38;a=b"/);
+test("one resident's texts go out in queue order while other residents' send alongside", async () => {
+  const order: string[] = [];
+  const gates = new Map<string, () => void>();
+  const send = perResident(async (r) => {
+    order.push(`start:${r.body}`);
+    await new Promise<void>((resolve) => gates.set(r.body, resolve));
+    order.push(`end:${r.body}`);
+  });
+  const ask = send({ ...row, id: 1n, householdId: 1n, body: "ask" });
+  const status = send({ ...row, id: 2n, householdId: 1n, body: "status" });
+  const other = send({ ...row, id: 3n, householdId: 2n, body: "other" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ["start:ask", "start:other"]);
+  gates.get("ask")!();
+  await ask;
+  await new Promise((resolve) => setImmediate(resolve));
+  gates.get("status")!();
+  gates.get("other")!();
+  await Promise.all([status, other]);
+  assert.deepEqual(order, ["start:ask", "start:other", "end:ask", "start:status", "end:status", "end:other"]);
 });
 
-test("a completed human call counts as answered", () => {
-  assert.equal(outcomeFor("completed", null), "answered");
-  assert.equal(outcomeFor("completed", "machine_end_beep"), "voicemail");
-  assert.equal(outcomeFor("no-answer", null), "no_answer");
+test("replies are polled with an overlap, recorded once, and retried if the module refuses one", async () => {
+  const received: string[] = [];
+  let refuse = true;
+  const db = {
+    receiveMessage: async (phone: string, body: string, id: string) => {
+      if (id === "m2" && refuse) throw new Error("db busy");
+      received.push(`${phone}:${body}:${id}`);
+    },
+  } as unknown as Contract;
+  const texts = [
+    { id: "m1", from: "+14692001234", text: "3", createdAt: "2026-11-08T07:40:00.000Z" },
+    { id: "m2", from: "+14692001234", text: "hi", createdAt: "2026-11-08T07:41:00.000Z" },
+  ];
+  const cursor = { since: "2026-11-08T07:30:00.000Z" };
+  const seen = new Set<string>();
+  await assert.rejects(pollReplies(db, async () => texts, cursor, seen), /db busy/);
+  assert.deepEqual(received, ["+14692001234:3:m1"]);
+  refuse = false;
+  await pollReplies(db, async () => texts, cursor, seen);
+  await pollReplies(db, async () => texts, cursor, seen);
+  assert.deepEqual(received, ["+14692001234:3:m1", "+14692001234:hi:m2"]);
+  assert.equal(cursor.since, "2026-11-08T07:40:00.000Z");
+});
+
+test("only text from people counts as a reply", () => {
+  const base = { createdAt: "2026-11-08T07:40:00.000Z" };
+  const texts = textsFrom([
+    { ...base, id: "a", sentBy: { handle: "+14692001234", kind: "human" }, content: { type: "text", text: "2" } },
+    { ...base, id: "b", sentBy: { handle: "+16283166196", kind: "agent" }, content: { type: "text", text: "echo" } },
+    { ...base, id: "c", sentBy: { handle: "+14692001234", kind: "human" }, content: { type: "message.read" } },
+  ]);
+  assert.deepEqual(texts, [{ id: "a", from: "+14692001234", text: "2", createdAt: base.createdAt }]);
+});
+
+test("a Photon send assigns the shared line once, then reuses the space", async () => {
+  const requests: string[] = [];
+  const reply = (status: number, body: object) => new Response(JSON.stringify(body), { status });
+  const fakeFetch = (async (url: string, init: RequestInit) => {
+    const path = new URL(url).pathname.replace(/^\/v1\/projects\/pho_prj_x/, "");
+    const body = init.body ? JSON.parse(String(init.body)) : {};
+    requests.push(`${init.method} ${path}${init.headers && (init.headers as Record<string, string>)["idempotency-key"] ? ` key=${(init.headers as Record<string, string>)["idempotency-key"]}` : ""}`);
+    if (path === "/platforms/imessage/assignments" && init.method === "GET") return reply(200, { assignments: [] });
+    if (path === "/platforms/imessage/assignments") return reply(201, { assignedPhoneNumber: "+16283166196" });
+    if (path === "/users") return reply(200, { id: body.handle === "+16283166196" ? "agent" : "resident" });
+    if (path === "/spaces") return reply(201, { id: `space:${body.participantIds.join(",")}` });
+    if (path === "/messages" && body.content.text === "too soon") return reply(403, { code: "SHARED_LINE_INBOUND_REQUIRED", detail: "The recipient must message this shared line before it can reply" });
+    if (path === "/messages") return reply(202, { id: `msg:${body.spaceId}:${body.senderId}:${body.content.format}` });
+    return reply(404, {});
+  }) as typeof fetch;
+  const photon = photonClient("pho_prj_x", "secret", fakeFetch);
+  assert.equal(await photon.sendText("+14692001234", "hello", "k1"), "msg:space:agent,resident:agent:plain");
+  await assert.rejects(photon.sendText("+14692001234", "too soon", "k2"), /Photon 403 SHARED_LINE_INBOUND_REQUIRED/);
+  assert.deepEqual([...requests].sort(), [
+    "GET /platforms/imessage/assignments",
+    "POST /platforms/imessage/assignments key=assign-+14692001234",
+    "POST /users",
+    "POST /users",
+    "POST /spaces key=space-agent-resident",
+    "POST /messages key=k1",
+    "POST /messages key=k2",
+  ].sort());
+});
+
+test("reading replies follows Photon's pages to the end", async () => {
+  const text = (id: string) => ({ id, createdAt: "2026-11-08T07:40:00.000Z", sentBy: { handle: "+14692001234", kind: "human" }, content: { type: "text", text: id } });
+  const fakeFetch = (async (url: string) => {
+    const page = new URL(url).searchParams.get("pageToken");
+    const body = page ? { items: [text("m2")] } : { items: [text("m1")], nextPageToken: "p2" };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  const texts = await photonClient("pho_prj_x", "secret", fakeFetch).receivedSince("2026-11-08T07:00:00.000Z");
+  assert.deepEqual(texts.map((t) => t.text), ["m1", "m2"]);
 });
 
 test("the call queue places the most urgent call first, callbacks before any survey", async () => {
@@ -78,34 +163,6 @@ test("the call queue places the most urgent call first, callbacks before any sur
   assert.deepEqual(queue.take(3).map((job) => job.priority), [Number.MAX_SAFE_INTEGER, 310, 140]);
   assert.deepEqual(queue.take(3).map((job) => job.priority), [12]);
 });
-
-test("calls dial through Photon SIP when it is configured, and the phone network when it is not", () => {
-  const sipKeys = ["PHOTON_SIP_SERVER", "PHOTON_SIP_USERNAME", "PHOTON_SIP_PASSWORD"] as const;
-  const saved = sipKeys.map((k) => process.env[k]);
-  process.env.VOICE_FROM_NUMBER = "+12142000199";
-  try {
-    for (const k of sipKeys) delete process.env[k];
-    const direct = callParams("+14692001234", "https://x/survey", "https://x/status");
-    assert.equal(direct.get("To"), "+14692001234");
-    assert.equal(direct.has("SipAuthUsername"), false);
-
-    process.env.PHOTON_SIP_SERVER = "sip.photon.codes:5061";
-    process.env.PHOTON_SIP_USERNAME = "user";
-    process.env.PHOTON_SIP_PASSWORD = "pass";
-    const sip = callParams("+14692001234", "https://x/survey", "https://x/status");
-    assert.equal(sip.get("To"), "sip:+14692001234@sip.photon.codes:5061;transport=tls");
-    assert.equal(sip.get("From"), "+12142000199");
-    assert.equal(sip.get("SipAuthUsername"), "user");
-    assert.equal(sip.get("SipAuthPassword"), "pass");
-    assert.deepEqual(sip.getAll("StatusCallbackEvent"), ["completed", "answered"]);
-
-    delete process.env.PHOTON_SIP_PASSWORD;
-    assert.throws(() => callParams("+14692001234", "u", "s"), /or none/);
-  } finally {
-    sipKeys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
-  }
-});
-
 
 const sign = (body: string, secret: string, t: number) =>
   `t=${t},v0=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;

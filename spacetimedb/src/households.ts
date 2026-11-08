@@ -194,11 +194,35 @@ export const messageFailed = spacetimedb.reducer({ messageId: t.u64(), error: t.
   if (m) ctx.db.message.id.update({ ...m, state: "failed", error });
 });
 
+// Photon's shared line can only answer someone who has texted it, so a text it refuses waits for
+// the resident's first message instead of failing.
+export const messageWaiting = spacetimedb.reducer({ messageId: t.u64(), error: t.string() }, (ctx, { messageId, error }) => {
+  const m = ctx.db.message.id.find(messageId);
+  if (m) ctx.db.message.id.update({ ...m, state: "waiting", error });
+});
+
+// Once the resident writes, waiting texts go out ahead of the reply, as new rows so they keep their
+// order. A status line is dropped since the reply carries the current one, and so is everything
+// once the resident has answered with a number. Returns how many went out.
+function releaseWaiting(tx: Tx, householdId: bigint, answered: boolean) {
+  const waiting = [...tx.db.message.householdId.filter(householdId)].filter((m) => m.direction === "out" && m.state === "waiting");
+  let released = 0;
+  for (const m of waiting.sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    const send = !answered && m.requestStatus === undefined;
+    tx.db.message.id.update({ ...m, state: "superseded", error: send ? "resent after the resident wrote" : "replaced by the reply" });
+    if (send) {
+      queueMessage(tx, householdId, m.body);
+      released += 1;
+    }
+  }
+  return released;
+}
+
 // A resident's reply over Photon. Numbered answers fill the record; anything else is kept for a
 // human and answered with the request's current status line, never a free-text promise.
 const REPLIES: Record<string, RecordPatch> = {
   "1": { canLeave: true },
-  "2": { canLeave: false, mobility: "walks" },
+  "2": { canLeave: false, mobility: "walks", assistance: "none" },
   "3": { canLeave: false, mobility: "wheelchair", assistance: "one_person" },
   "4": { canLeave: false, mobility: "bedbound", assistance: "two_person_lift" },
 };
@@ -210,6 +234,8 @@ export function handleReply(tx: Tx, phone: string, body: string, providerId: str
     audit(tx, "message", `reply from an unknown number ending ${phone.slice(-4)}`);
     return;
   }
+  // The messaging service polls Photon with overlapping windows, so the same reply can arrive twice.
+  if ([...tx.db.message.householdId.filter(home.id)].some((m) => m.direction === "in" && m.providerId === providerId)) return;
   tx.db.message.insert({
     id: 0n,
     householdId: home.id,
@@ -222,10 +248,13 @@ export function handleReply(tx: Tx, phone: string, body: string, providerId: str
     at: tx.timestamp,
   });
   const patch = REPLIES[body.trim()];
+  const released = releaseWaiting(tx, home.id, patch !== undefined);
   const updated = patch ? applyRecord(tx, home, patch, "photon") : home;
   const request = tx.db.request.householdId.find(updated.id);
   if (request) queueMessage(tx, home.id, lineFor(tx, request), requestStatus(request));
-  else if (!patch) queueMessage(tx, home.id, SURVEY_ASK);
+  else if (!patch) {
+    if (released === 0) queueMessage(tx, home.id, SURVEY_ASK);
+  }
   else queueMessage(tx, home.id, "Thank you. Leave now if you can do it safely.");
 }
 

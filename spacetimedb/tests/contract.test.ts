@@ -202,6 +202,60 @@ describe("Photon replies", () => {
     });
     tx((ctx) => expect(ctx.db.request.householdId.find(home.id)!.status).toBe("received"));
   });
+
+  it("clears the lift help a wheelchair answer set when the resident later says they walk", () => {
+    const { tx } = harness();
+    tx((ctx) => insertHousehold(ctx, { riderId: "r7", name: "Gus", address: "7 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550193", language: "en", mobility: "walks", assistance: "none", simulated: false }));
+    tx((ctx) => handleReply(ctx, "+12145550193", "3", "pho_msg_3"));
+    tx((ctx) => handleReply(ctx, "+12145550193", "2", "pho_msg_2"));
+    tx((ctx) => {
+      const home = [...ctx.db.household.phone.filter("+12145550193")][0];
+      expect([home.mobility, home.assistance]).toEqual(["walks", "none"]);
+    });
+  });
+
+  it("sends a survey question Photon held back once the resident writes, ahead of the reply", () => {
+    const { tx } = harness();
+    const ask = "Reply 1 if you can leave on your own.";
+    tx((ctx) => {
+      const home = insertHousehold(ctx, { riderId: "r8", name: "Hal", address: "8 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550192", language: "en", mobility: "walks", assistance: "none", simulated: false });
+      ctx.db.message.insert({ id: 0n, householdId: home.id, direction: "out", state: "waiting", body: ask, requestStatus: undefined, providerId: undefined, error: "SHARED_LINE_INBOUND_REQUIRED", at: ctx.timestamp });
+    });
+    tx((ctx) => handleReply(ctx, "+12145550192", "hi", "pho_msg_hi"));
+    tx((ctx) => {
+      const out = [...ctx.db.message.iter()].filter((m) => m.direction === "out").sort((a, b) => (a.id < b.id ? -1 : 1));
+      expect(out.map((m) => [m.state, m.body])).toEqual([
+        ["superseded", ask],
+        ["queued", ask],
+      ]);
+    });
+  });
+
+  it("drops a held question once the resident has already answered with a number", () => {
+    const { tx } = harness();
+    tx((ctx) => {
+      const home = insertHousehold(ctx, { riderId: "r9", name: "Ivy", address: "9 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550191", language: "en", mobility: "walks", assistance: "none", simulated: false });
+      ctx.db.message.insert({ id: 0n, householdId: home.id, direction: "out", state: "waiting", body: "Reply 1 if you can leave.", requestStatus: undefined, providerId: undefined, error: "SHARED_LINE_INBOUND_REQUIRED", at: ctx.timestamp });
+    });
+    tx((ctx) => handleReply(ctx, "+12145550191", "1", "pho_msg_1"));
+    tx((ctx) => {
+      const out = [...ctx.db.message.iter()].filter((m) => m.direction === "out");
+      expect(out.filter((m) => m.body === "Reply 1 if you can leave.").map((m) => m.state)).toEqual(["superseded"]);
+      expect(out.filter((m) => m.state === "queued")).toHaveLength(1);
+    });
+  });
+
+  it("records a reply Photon delivers twice only once", () => {
+    const { tx } = harness();
+    tx((ctx) => insertHousehold(ctx, { riderId: "r6", name: "Flo", address: "6 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550194", language: "en", mobility: "walks", assistance: "none", simulated: false }));
+    tx((ctx) => handleReply(ctx, "+12145550194", "hello?", "pho_msg_1"));
+    tx((ctx) => handleReply(ctx, "+12145550194", "hello?", "pho_msg_1"));
+    tx((ctx) => {
+      const messages = [...ctx.db.message.iter()];
+      expect(messages.filter((m) => m.direction === "in")).toHaveLength(1);
+      expect(messages.filter((m) => m.direction === "out")).toHaveLength(1);
+    });
+  });
 });
 
 describe("the NWS feed", () => {

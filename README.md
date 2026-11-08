@@ -15,7 +15,7 @@ A hazard warning puts homes in a zone. The system texts and calls each home, lea
 The architecture comes from Standard-Response, with three changes:
 
 - SpacetimeDB holds all state and runs all logic, in place of Convex.
-- Photon (Spectrum) carries the text fallback and status callbacks over iMessage.
+- Photon carries the text fallback and status callbacks over iMessage, through its Beta REST API.
 - An in-module procedure polls National Weather Service alerts, in place of Apify. It needs no key.
 
 The live map in `web/` subscribes to the `vehicle` table.
@@ -27,7 +27,8 @@ The live map in `web/` subscribes to the `vehicle` table.
 | `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
 | `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
-| `web/` | Live map: one SpacetimeDB subscription per connection, markers keyed by `vehicle.id`. |
+| `dispatchers-portal/` | EOC Incident Commander & Dispatcher dashboard (React + Leaflet + Tailwind): real-time SpacetimeDB subscriptions, live emergency triage feed with AI summaries, closest-capable dispatcher proximity graph matching, and call transcript viewer. |
+| `web/` | Legacy prototype map. |
 
 ## How a night runs
 
@@ -90,7 +91,7 @@ cd services && npm install && npm run generate
 cd web && npm install && npm run generate && npm run dev
 ```
 
-The map defaults to the local database `hackutd`. After Maincloud publish, open it with `http://localhost:5173/?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md`. Open two tabs: both subscribe once and key markers by `vehicle.id`.
+The shared project database is `hackutd-535md` on Maincloud. The services connect using `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`; `.env.example` contains the shared target. For the map, copy `web/.env.example` to `web/.env.local` before starting Vite. You can also select the shared database with `http://localhost:5173/?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md`. Open two tabs: both subscribe once and key markers by `vehicle.id`. To use a local database, set the service and map environment files to `ws://127.0.0.1:3000` and `hackutd`.
 
 ```bash
 cd services && npm run messaging
@@ -121,19 +122,18 @@ cd dispatch && uv run python server.py
 | Command | What it proves |
 | --- | --- |
 | `cd spacetimedb && npm test` | The contract: status moves, compatibility, frozen runs, one live offer, idempotent callbacks, correction handling, solver fallback, road closures, Photon replies, keypad digits, incoming calls and NWS zones. Also urgency ranking, coverage, and a 75-minute night of 2,000 homes at 1 call per second. Runs in SpacetimeDB's own test harness. |
-| `cd services && npm test` | Photon delivery respects the allowlist, Twilio and ElevenLabs signatures validate, a spoken answer is recorded like a pressed key, an incoming call is matched by caller number, a call with no clear answer is not counted as reached, and the call queue places the most urgent call first. |
+| `cd services && npm test` | Photon delivery respects the allowlist, a Photon send reuses the resident's shared line, replies are read once across pages, ElevenLabs signatures validate, a spoken answer is recorded like a pressed key, an incoming call is matched by caller number, a call with no clear answer is not counted as reached, and the call queue places the most urgent call first. |
 | `cd services && npm run typecheck` | Needs `npm run generate` first. |
 | `cd dispatch && uv run --with pytest pytest tests` | The solver's routes are feasible. |
 
 ## At scale
 
-The night test plays the scheduler and a voice service limited to 1 call per second. It runs 2,000 stand-in homes, with hazards arriving 25 to 67 minutes after the warning. At the end every home is accounted for, and none is overlooked or still waiting on the ladder. Calling in urgency order reached 91% of the homes that can't leave on their own by phone. Calling in arrival order reached 87%. A second seed gave 88% and 83%. The cost is that walkers are called later, so slightly more of them go to door checks (356 against 343 on the second seed). The call rate matters more than the order: 2,000 homes at 1 call per second take 33 minutes for one round. At 3 calls per second, even arrival order reached 93% and cut door checks from 317 to 142 (first seed). Raise `VOICE_CALLS_PER_SECOND` along with the Twilio account's limit.
+The night test plays the scheduler and a voice service limited to 1 call per second. It runs 2,000 stand-in homes, with hazards arriving 25 to 67 minutes after the warning. At the end every home is accounted for, and none is overlooked or still waiting on the ladder. Calling in urgency order reached 91% of the homes that can't leave on their own by phone. Calling in arrival order reached 87%. A second seed gave 88% and 83%. The cost is that walkers are called later, so slightly more of them go to door checks (356 against 343 on the second seed). The call rate matters more than the order: 2,000 homes at 1 call per second take 33 minutes for one round. At 3 calls per second, even arrival order reached 93% and cut door checks from 317 to 142 (first seed). Raise `VOICE_CALLS_PER_SECOND` as far as the Photon line and ElevenLabs plan allow.
 
 The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That is the stand-in fleet, not a limit of the dispatcher.
 
 ## Not built yet
 
 - Spanish calls. The ElevenLabs agent speaks English only for now.
-- Photon messaging on the Beta API. `messaging.ts` still uses the Stable SDK, which rejects Beta (`pho_prj_`) projects.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
 - A production map (the `web/` client is the tornado demo overlay).
