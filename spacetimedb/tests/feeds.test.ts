@@ -5,7 +5,7 @@ import * as moduleExports from "../src/index";
 import { spacetimedb } from "../src/schema";
 import { type Tx } from "../src/core";
 import { insertHousehold } from "../src/households";
-import { applyZones, commitFeed, parseAlerts, parseNwsResponse } from "../src/feeds";
+import { applyZones, commitFeed, parseAlerts, parseNwsResponse, replayPhase } from "../src/feeds";
 
 const ORIGIN = { lat: 32.9857, lng: -96.7502 };
 const POLY: [number, number][][] = [[[-96.8, 32.95], [-96.7, 32.95], [-96.7, 33.02], [-96.8, 33.02], [-96.8, 32.95]]];
@@ -191,5 +191,29 @@ describe("feed reconciliation", () => {
       expect(ctx.db.zone.externalId.find("sim-tornado")!.active).toBe(true);
       expect(ctx.db.zone.externalId.find("legacy-stand-in")!.active).toBe(true);
     });
+  });
+});
+
+describe("replay warning", () => {
+  it("appears, updates and clears one replay polygon without counting as live or opening outreach", () => {
+    const { tx } = harness();
+    const replay = (phase: string) => tx((ctx) => replayPhase(ctx, phase));
+    const row = () => tx((ctx) => ctx.db.zone.externalId.find("replay-tornado-dfw"));
+    replay("appear");
+    const appeared = row()!;
+    expect(appeared.active).toBe(true);
+    expect(appeared.kind).toBe("replay");
+    expect(appeared.messageType).toBe("Alert");
+    replay("update");
+    const updated = row()!;
+    expect(updated.id).toBe(appeared.id);
+    expect(updated.messageType).toBe("Update");
+    expect(updated.geometryJson).not.toBe(appeared.geometryJson);
+    tx((ctx) => commitFeed(ctx, { area: "TX", zones: [] }));
+    expect(row()!.active).toBe(true);
+    tx((ctx) => expect(ctx.db.feedHealth.id.find(0)!.warningCount).toBe(0));
+    replay("disappear");
+    expect(row()!.active).toBe(false);
+    tx((ctx) => expect(outreach(ctx)).toEqual({ inZone: 0, requests: 0, calls: 0, assignments: 0, callbacks: 0 }));
   });
 });

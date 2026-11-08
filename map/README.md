@@ -6,30 +6,30 @@ The DialEvac map. Plain HTML and scripts with MapLibre: no build step to view it
 cd map && python3 tools/serve.py
 ```
 
-Open http://127.0.0.1:4178. The page connects to the local SpacetimeDB database `hackutd` at `ws://127.0.0.1:3000`. Use `?uri=...&db=...` to point it elsewhere, or `?live=off` to run without live data.
+Open http://127.0.0.1:4178. Live data comes from `hackutd-535md` on Maincloud and the demos from the local database `hackutd-richardson`. Use `?uri=...&db=...` for the live database and `?demoUri=...&demoDb=...` for the demo one.
 
 ## Layers
 
 | Layer | Source | Notes |
 | --- | --- | --- |
-| Live tornado warnings | `alert` table (NWS, polled by the module) | Red polygon per active `Tornado Warning`. Click it, or its row in the panel, for the headline, area, issue and expiry times, and the official link. A warning without a polygon is listed, not drawn. Expired warnings are hidden. `?events=all` shows every alert type. |
-| Feed health | `feed_status` table | Tells "No active tornado warnings" apart from "Unable to refresh warnings". Stale after 6 minutes without a successful poll. |
-| Simulated hazard | `zone` rows with source `stand-in` | Dashed outline labelled SIMULATED. Never styled or listed as a live warning. |
+| Live tornado warnings | `zone` table (NWS, polled by the module) | Red polygon per active warning. Click it, or its row in the panel, for the headline, area, issue and expiry times, and the official link. A warning without a polygon is listed, not drawn. Expired warnings are hidden. |
+| Feed health | `feed_health` table | Tells "No active tornado warnings" apart from "Unable to refresh warnings". Stale after 6 minutes without a successful poll. |
+| Run Demo | Local demo database | Richardson Tornado and Hurricane Aftermath, drawn on their own layers. Live overlays leave the map during a demo; Return to Live restores them. |
 | Response vehicles | `vehicle` and `assignment` tables | Available, Assigned (offered, waiting for the driver) or En route (driver accepted). Simulated units carry "SIM". Driver names are not shown. |
-| Illustrations | Static files | Creek flood, thunderstorm and hurricane. Illustrative only. |
+| Weather layers | FEMA NFHL, NEXRAD, NHC | Flood zones, radar and active hurricanes from official services. Optional IEM radar overlay. |
 
-The map subscribes to `alert`, `feed_status`, `zone`, `vehicle` and `assignment` only. It never reads household, request, call, message or transcript tables.
+The live connection subscribes to `zone`, `feed_health`, `vehicle` and `assignment` only. The local demo connection also reads simulated `household`, `request`, `shelter`, `callback` and `road_closure` rows.
 
 ## Live data code
 
-`assets/live.js` draws the layers. `assets/live-data.js` is built from `live/src/live-data.ts`. Rebuild it after a schema change:
+`assets/hazard-tornado.js` draws the layers. `assets/spacetime.js` is built from `src/spacetime.ts` and is not committed. Build it after pulling or after a schema change:
 
 ```bash
-cd map/live && npm install && npm run generate && npm run build
+cd map && npm install && npm run generate && npm run build
 ```
 
 ```bash
-cd map/live && npm test
+cd map && npm test
 ```
 
 ## Local data

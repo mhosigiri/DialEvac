@@ -10,6 +10,7 @@ import { accept } from "../src/offers";
 import { heartbeat, seedTornadoIncident, seedTown, startNight } from "../src/loop";
 import { TORNADO_TIMING } from "../src/domain/hazard";
 import { buildWorld, commit, solve } from "../src/dispatch";
+import { advanceAssistanceStory, DEMO_PENDING, DEMO_WHEELCHAIR, seedAssistanceStory } from "../src/demos";
 import { applyZones, parseAlerts } from "../src/feeds";
 import { upsertClosure } from "../src/roads";
 
@@ -260,6 +261,34 @@ describe("stand-in seeding", () => {
       expect([...ctx.db.request.iter()].filter((r) => r.mobility === "wheelchair")).toHaveLength(1);
       expect([...ctx.db.zone.iter()].filter((z) => z.externalId === "sim-tornado")).toHaveLength(1);
       expect(control(ctx).hazard).toBe("tornado");
+    });
+  });
+});
+
+describe("hurricane aftermath demo", () => {
+  it("confirms the wheelchair ride only after dispatcher approval and simulated driver acceptance", () => {
+    const { tx } = harness();
+    tx(seedAssistanceStory);
+    tx((ctx) => {
+      const home = ctx.db.household.riderId.find(DEMO_WHEELCHAIR)!;
+      const pending = ctx.db.household.riderId.find(DEMO_PENDING)!;
+      const request = ctx.db.request.householdId.find(home.id)!;
+      const assignment = [...ctx.db.assignment.requestId.filter(request.id)][0];
+      expect(assignment.status).toBe("proposed");
+      expect(ctx.db.callback.count()).toBe(0n);
+      expect(pending.reach).toBe("door_check");
+      expect([...ctx.db.call.householdId.filter(pending.id)][0].outcome).toBe("no_answer");
+      advanceAssistanceStory(ctx, "approve");
+      expect(ctx.db.assignment.id.find(assignment.id)!.status).toBe("offered");
+      expect(ctx.db.callback.count()).toBe(0n);
+    });
+    tx((ctx) => advanceAssistanceStory(ctx, "accept"));
+    tx((ctx) => {
+      const home = ctx.db.household.riderId.find(DEMO_WHEELCHAIR)!;
+      const request = ctx.db.request.householdId.find(home.id)!;
+      expect(request.status).toBe("driver_accepted");
+      expect([...ctx.db.callback.iter()]).toHaveLength(1);
+      expect([...ctx.db.callback.iter()][0].line).toContain("wheelchair-accessible van");
     });
   });
 });
