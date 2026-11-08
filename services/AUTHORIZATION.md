@@ -47,6 +47,8 @@ The five public fixture reducers remain available only under the existing `DEMO_
 
 For the synthetic connector check, provide the granted demo service token privately as `SPACETIME_DEMO_SERVICE_TOKEN` and run `npm run check:connections -- --write-demo`. It only writes `hackutd-richardson`; the operational connection stays read-only, and no voice or message runners start. The check tests durable transcript deduplication by sending the same final conversation twice.
 
+For the live role/closure/webhook rehearsal, also provide `SPACETIME_DEMO_OPERATOR_TOKEN` and run `npm run check:safety`. It uses the actual voice handler against synthetic records, including inbound calls missing from the service's active-call cache. It rejects the operational target, verifies forbidden writes fail, and resets its demo fixture on completion. `SPACETIME_SAFETY_URI` / `SPACETIME_SAFETY_DATABASE` optionally target a separate local rehearsal database; on Maincloud it accepts only `hackutd-richardson`.
+
 Real services must stay stopped during a migration/rehearsal. Publishing the module never authorizes a real phone call or message. Real contact requires Anish's explicit go-ahead and is limited to `CONTACT_ALLOWLIST`.
 
 ## Public reads are a separate rollout

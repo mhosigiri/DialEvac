@@ -8,6 +8,7 @@
     "voice": "tsx --env-file=../.env src/voice.ts",
     "typecheck": "tsc --noEmit",
     "check:connections": "tsx --env-file=../.env scripts/check-connections.ts",
+    "check:safety": "tsx --env-file=../.env scripts/check-safety.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts"
   },
