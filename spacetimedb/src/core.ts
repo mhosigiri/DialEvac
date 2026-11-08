@@ -2,7 +2,8 @@ import { ScheduleAt, Timestamp } from "spacetimedb";
 import { SenderError, type InferSchema, type ReducerCtx } from "spacetimedb/server";
 import { spacetimedb } from "./schema";
 import { statusLine, type Ride } from "./domain/honesty";
-import { isAssistance, isMobility, vehicleCanServe, type Needs } from "./domain/need";
+import { needsOf, vehicleCanServe } from "./domain/need";
+export { needsOf } from "./domain/need";
 import { ANNOUNCED, canMove, isRequestStatus, type AssignmentStatus, type RequestStatus } from "./domain/status";
 import { DEADLINE_MARGIN_MINUTES, minutesUntilHazard } from "./domain/hazard";
 import { urgency } from "./domain/urgency";
@@ -46,15 +47,6 @@ export function control(tx: Tx): Control {
     firstArrivalMinutes: 20,
     metersPerMinute: 60,
   });
-}
-
-export function needsOf(row: { people: number; mobility: string; assistance: string; oxygen: boolean }): Needs {
-  return {
-    people: Math.max(1, row.people),
-    mobility: isMobility(row.mobility) ? row.mobility : "walks",
-    assistance: isAssistance(row.assistance) ? row.assistance : "none",
-    oxygen: row.oxygen,
-  };
 }
 
 export function hazardAtFor(tx: Tx, home: Household) {

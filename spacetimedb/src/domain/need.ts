@@ -23,6 +23,16 @@ export function isAssistance(value: string): value is Assistance {
   return (ASSISTANCE as readonly string[]).includes(value);
 }
 
+// Normalize stored records once, for the module and clients that preview its decisions.
+export function needsOf(row: { people: number; mobility: string; assistance: string; oxygen: boolean }): Needs {
+  return {
+    people: Math.max(1, row.people),
+    mobility: isMobility(row.mobility) ? row.mobility : "walks",
+    assistance: isAssistance(row.assistance) ? row.assistance : "none",
+    oxygen: row.oxygen,
+  };
+}
+
 export function loadFor({ people, mobility }: Needs): Load {
   const others = Math.max(0, people - 1);
   if (mobility === "wheelchair") return { seats: others, wheelchairSpaces: 1, stretcherSpaces: 0 };
