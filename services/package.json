@@ -1,0 +1,21 @@
+{
+  "name": "hackutd-services",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path ../spacetimedb",
+    "messaging": "tsx --env-file=../.env src/messaging.ts",
+    "voice": "tsx --env-file=../.env src/voice.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "spacetimedb": "2.14.1",
+    "spectrum-ts": "12.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
