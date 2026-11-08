@@ -8,10 +8,10 @@ import { SPACETIME_DEMO_DATABASE, SPACETIME_URI, separateDemoDatabase } from "..
 const DASHBOARD_TABLES = ["household", "request", "vehicle", "assignment", "call", "transcript_line", "zone", "coverage", "feed_health"];
 const DEMO_TABLES = [...DASHBOARD_TABLES, "message", "callback", "shelter", "road_closure"];
 
-async function open(uri: string, database: string, queries: string[]) {
+async function open(uri: string, database: string, queries: string[], token?: string) {
   return new Promise<DbConnection>((resolve, reject) => {
     const timer = setTimeout(() => { connection.disconnect(); reject(new Error(`Subscription timed out: ${database}`)); }, 15_000);
-    const connection = DbConnection.builder().withUri(uri).withDatabaseName(database)
+    const connection = DbConnection.builder().withUri(uri).withDatabaseName(database).withToken(token)
       .onConnect(conn => {
         conn.subscriptionBuilder().onApplied(() => { clearTimeout(timer); resolve(conn); })
           .onError(ctx => { clearTimeout(timer); conn.disconnect(); reject(ctx.event ?? new Error("subscription failed")); })
@@ -51,7 +51,8 @@ try {
 
   if (process.argv.includes("--write-demo")) {
     // Writes only synthetic fixture data in the dedicated demo database. Never runs telephony.
-    const demoService = await open(SPACETIME_URI, SPACETIME_DEMO_DATABASE, SERVICE_QUERIES);
+    assert(process.env.SPACETIME_DEMO_SERVICE_TOKEN, "Set SPACETIME_DEMO_SERVICE_TOKEN to a granted demo service token before running write checks");
+    const demoService = await open(SPACETIME_URI, SPACETIME_DEMO_DATABASE, SERVICE_QUERIES, process.env.SPACETIME_DEMO_SERVICE_TOKEN);
     connections.push(demoService);
     const contract = contractFor(demoService);
     const queued: bigint[] = [], pending: bigint[] = [];
@@ -84,8 +85,13 @@ try {
 
     const call = [...observer.db.call.iter()].find(row => row.householdId === home.id && row.purpose === "inbound")!;
     assert(call);
-    await observer.reducers.addTranscriptLine({ callId: call.id, speaker: "user", text: "Synthetic connector check" });
-    await until(() => [...observer.db.transcriptLine.iter()].some(row => row.callId === call.id));
+    const transcript = { providerId: call.providerId!, phone: home.phone, turns: [
+      { speaker: "agent" as const, text: "Synthetic connector check" }, { speaker: "resident" as const, text: "Synthetic answer" },
+    ] };
+    await contract.recordCallTranscript(transcript);
+    await contract.recordCallTranscript(transcript);
+    await until(() => [...observer.db.transcriptLine.iter()].filter(row => row.callId === call.id).length === 2);
+    assert.deepEqual([...observer.db.transcriptLine.iter()].filter(row => row.callId === call.id).map(row => row.speaker).sort(), ["agent", "resident"]);
     await observer.reducers.advanceAssistanceDemo({ phase: "approve" });
     await observer.reducers.advanceAssistanceDemo({ phase: "accept" });
     await until(() => pending.length > 0);

@@ -6,6 +6,7 @@ import { isAssistance, isMobility } from "./domain/need";
 import { ESCALATIONS } from "./domain/status";
 import { startReachLadder } from "./reach";
 import { SURVEY_ASK } from "./domain/script";
+import { requireOperator, requireRecordEditor, requireService } from "./authorization";
 
 // Households: the rider list, the warning zone, and the record the voice agent and Photon replies
 // fill in. Every record change logs a correction and runs syncRequest, so a changed need reaches
@@ -34,6 +35,7 @@ const known = (row: Known): Known =>
   Object.fromEntries(Object.entries({ people: row.people, oxygen: row.oxygen, needProbability: row.needProbability }).filter(([, v]) => v !== undefined));
 
 export const importRiders = spacetimedb.reducer({ riders: t.array(riderRow) }, (ctx, { riders }) => {
+  requireOperator(ctx);
   for (const rider of riders) {
     const existing = ctx.db.household.riderId.find(rider.riderId);
     const fields = {
@@ -89,6 +91,7 @@ export function applyZone(tx: Tx, rings: [number, number][][]) {
 }
 
 export const setZone = spacetimedb.reducer({ ringsJson: t.string() }, (ctx, { ringsJson }) => {
+  requireOperator(ctx);
   const rings = JSON.parse(ringsJson) as [number, number][][];
   if (!Array.isArray(rings) || !Array.isArray(rings[0])) throw new SenderError("expected GeoJSON polygon coordinates");
   const entered = applyZone(ctx, rings);
@@ -124,6 +127,7 @@ export function applyRecord(tx: Tx, home: Household, patch: RecordPatch, source:
 export const updateRecord = spacetimedb.reducer(
   { householdId: t.u64(), patch: recordPatch, source: t.string() },
   (ctx, { householdId, patch, source }) => {
+    requireRecordEditor(ctx);
     const home = ctx.db.household.id.find(householdId);
     if (!home) throw new SenderError("no such household");
     applyRecord(ctx, home, patch, source);
@@ -131,6 +135,7 @@ export const updateRecord = spacetimedb.reducer(
 );
 
 export const escalate = spacetimedb.reducer({ householdId: t.u64(), reason: t.string() }, (ctx, { householdId, reason }) => {
+  requireOperator(ctx);
   if (!(ESCALATIONS as readonly string[]).includes(reason)) throw new SenderError(`unknown escalation ${reason}`);
   const request = ctx.db.request.householdId.find(householdId);
   if (!request) throw new SenderError("no ride request to escalate");
@@ -141,12 +146,14 @@ export const escalate = spacetimedb.reducer({ householdId: t.u64(), reason: t.st
 
 // Calls: the voice service claims queued rows, then reports how each went.
 export const claimCall = spacetimedb.reducer({ callId: t.u64(), providerId: t.string() }, (ctx, { callId, providerId }) => {
+  requireService(ctx);
   const c = ctx.db.call.id.find(callId);
   if (!c || c.phase !== "queued") throw new SenderError("changed");
   ctx.db.call.id.update({ ...c, phase: "ringing", providerId });
 });
 
 export const callAnswered = spacetimedb.reducer({ callId: t.u64() }, (ctx, { callId }) => {
+  requireService(ctx);
   const c = ctx.db.call.id.find(callId);
   if (!c || c.phase !== "ringing") throw new SenderError("changed");
   ctx.db.call.id.update({ ...c, phase: "live" });
@@ -159,11 +166,15 @@ export function endCall(tx: Tx, callId: bigint, outcome: string) {
   tx.db.call.id.update({ ...c, phase: "ended", outcome, endedAt: tx.timestamp });
 }
 
-export const callEnded = spacetimedb.reducer({ callId: t.u64(), outcome: t.string() }, (ctx, { callId, outcome }) => endCall(ctx, callId, outcome));
+export const callEnded = spacetimedb.reducer({ callId: t.u64(), outcome: t.string() }, (ctx, { callId, outcome }) => {
+  requireService(ctx);
+  endCall(ctx, callId, outcome);
+});
 
 export const addTranscriptLine = spacetimedb.reducer(
   { callId: t.u64(), speaker: t.string(), text: t.string() },
   (ctx, { callId, speaker, text }) => {
+    requireService(ctx);
     const c = ctx.db.call.id.find(callId);
     if (!c) throw new SenderError("no such call");
     const request = ctx.db.request.householdId.find(c.householdId);
@@ -172,6 +183,7 @@ export const addTranscriptLine = spacetimedb.reducer(
 );
 
 export const markCallback = spacetimedb.reducer({ callbackId: t.u64(), state: t.string() }, (ctx, { callbackId, state }) => {
+  requireService(ctx);
   if (!["placed", "played", "unanswered"].includes(state)) throw new SenderError(`unknown callback state ${state}`);
   const cb = ctx.db.callback.id.find(callbackId);
   if (!cb) throw new SenderError("no such callback");
@@ -184,17 +196,20 @@ export const markCallback = spacetimedb.reducer({ callbackId: t.u64(), state: t.
 
 // Photon messages: the messaging service claims queued rows and reports delivery.
 export const claimMessage = spacetimedb.reducer({ messageId: t.u64() }, (ctx, { messageId }) => {
+  requireService(ctx);
   const m = ctx.db.message.id.find(messageId);
   if (!m || m.state !== "queued") throw new SenderError("changed");
   ctx.db.message.id.update({ ...m, state: "sending" });
 });
 
 export const messageSent = spacetimedb.reducer({ messageId: t.u64(), providerId: t.string() }, (ctx, { messageId, providerId }) => {
+  requireService(ctx);
   const m = ctx.db.message.id.find(messageId);
   if (m) ctx.db.message.id.update({ ...m, state: "sent", providerId });
 });
 
 export const messageFailed = spacetimedb.reducer({ messageId: t.u64(), error: t.string() }, (ctx, { messageId, error }) => {
+  requireService(ctx);
   const m = ctx.db.message.id.find(messageId);
   if (m) ctx.db.message.id.update({ ...m, state: "failed", error });
 });
@@ -202,6 +217,7 @@ export const messageFailed = spacetimedb.reducer({ messageId: t.u64(), error: t.
 // Photon's shared line can only answer someone who has texted it, so a text it refuses waits for
 // the resident's first message instead of failing.
 export const messageWaiting = spacetimedb.reducer({ messageId: t.u64(), error: t.string() }, (ctx, { messageId, error }) => {
+  requireService(ctx);
   const m = ctx.db.message.id.find(messageId);
   if (m) ctx.db.message.id.update({ ...m, state: "waiting", error });
 });
@@ -274,6 +290,7 @@ export function handleDigit(tx: Tx, callId: bigint, digit: string) {
 }
 
 export const recordDigit = spacetimedb.reducer({ callId: t.u64(), digit: t.string() }, (ctx, { callId, digit }) => {
+  requireService(ctx);
   if (handleDigit(ctx, callId, digit)) endCall(ctx, callId, "answered");
 });
 
@@ -297,15 +314,22 @@ export function handleInboundCall(tx: Tx, phone: string, providerId: string, ans
 
 export const inboundCallEnded = spacetimedb.reducer(
   { phone: t.string(), providerId: t.string(), choice: t.string(), people: t.option(t.u32()), oxygen: t.option(t.bool()) },
-  (ctx, { phone, providerId, choice, people, oxygen }) => void handleInboundCall(ctx, phone, providerId, { choice, people, oxygen }),
+  (ctx, { phone, providerId, choice, people, oxygen }) => {
+    requireService(ctx);
+    void handleInboundCall(ctx, phone, providerId, { choice, people, oxygen });
+  },
 );
 
 export const receiveMessage = spacetimedb.reducer(
   { phone: t.string(), body: t.string(), providerId: t.string() },
-  (ctx, { phone, body, providerId }) => handleReply(ctx, phone, body, providerId),
+  (ctx, { phone, body, providerId }) => {
+    requireService(ctx);
+    handleReply(ctx, phone, body, providerId);
+  },
 );
 
 export const closeRequest = spacetimedb.reducer({ requestId: t.u64() }, (ctx, { requestId }) => {
+  requireOperator(ctx);
   const request = ctx.db.request.id.find(requestId);
   if (!request) throw new SenderError("no such request");
   // Also repair legacy closed rows whose assignments were never released. No callback announces closure.

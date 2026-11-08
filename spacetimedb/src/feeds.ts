@@ -3,6 +3,7 @@ import { SenderError, t } from "spacetimedb/server";
 import { feedPoll, spacetimedb } from "./schema";
 import { audit, runAt, type Tx } from "./core";
 import { requireDemoDatabase } from "./demo-guard";
+import { requireInternal, requireOperator } from "./authorization";
 
 // Live NWS ingestion is display-only. It never calls applyZone, starts a reach ladder, or writes a
 // request. A failed poll marks health stale and deliberately preserves the last good polygons.
@@ -135,6 +136,7 @@ export function commitFeed(tx: Tx, result: { area: string; zones?: FeedZone[]; f
 }
 
 export const pollFeeds = spacetimedb.procedure({ onSchedule: feedPoll }, { arg: feedPoll.rowType }, t.unit(), (ctx) => {
+  requireInternal(ctx);
   const area = ctx.env.FEED_AREA || "TX";
   let zones: FeedZone[] = [];
   let failure: string | undefined;
@@ -159,6 +161,7 @@ export const pollFeeds = spacetimedb.procedure({ onSchedule: feedPoll }, { arg: 
 });
 
 export const startFeeds = spacetimedb.reducer(ctx => {
+  requireOperator(ctx);
   if (ctx.db.feedPoll.count() === 0n) ctx.db.feedPoll.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, 0) });
 });
 

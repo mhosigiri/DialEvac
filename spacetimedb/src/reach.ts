@@ -3,6 +3,7 @@ import { accountFor, ACCOUNTS, type Account } from "./domain/coverage";
 import { audit, control, minutesLeft, queueMessage, runAt, urgencyOf, type Household, type Tx } from "./core";
 import { doorCheckLeadMinutes } from "./domain/hazard";
 import { SURVEY_ASK, SURVEY_INTRO } from "./domain/script";
+import { requireInternal } from "./authorization";
 
 // Silence never counts as safe. Each home in the zone gets a survey text at once (texts go out in
 // parallel), then a call, retries at 2 and 5 minutes, then the door-check list for field teams.
@@ -64,9 +65,10 @@ export function runLadderStep(tx: Tx, householdId: bigint, stepIndex: number) {
   if (next) tx.db.reachStep.insert({ scheduledId: 0n, scheduledAt: runAt(tx, next.afterSeconds), householdId, step: stepIndex + 1 });
 }
 
-export const runReachStep = spacetimedb.reducer({ onSchedule: reachStep }, { timer: reachStep.rowType }, (ctx, { timer }) =>
-  runLadderStep(ctx, timer.householdId, timer.step),
-);
+export const runReachStep = spacetimedb.reducer({ onSchedule: reachStep }, { timer: reachStep.rowType }, (ctx, { timer }) => {
+  requireInternal(ctx);
+  runLadderStep(ctx, timer.householdId, timer.step);
+});
 
 // Accounts for every home in the zone and restarts the ladder for any home nobody is reaching.
 // "Reached" alone is not safe: a home that picked up and hung up without answering, or whose

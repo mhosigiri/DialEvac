@@ -9,6 +9,7 @@ The shared database is `hackutd-535md` on Maincloud. Treat its deployed schema a
 - Add `inbound_call_ended` and `message_waiting` for the local services, while keeping existing reducer names and argument signatures.
 - Keep `DEMO_MODE` unset on the operational Maincloud database `hackutd-535md`. The optional setting is only enabled as `isolated` for the separate Maincloud demo database `hackutd-richardson`. Public demo reducers reject missing opt-in, real households/vehicles, and active incidents.
 - Preserve stored module environment values. Do not load service `.env` into the publish process or use `--replace-env`.
+- The prepared safety update adds the private `transcript_receipt` table and `recordCallTranscript` reducer. Existing 23 tables and existing function signatures stay intact. Optional `OPERATOR_IDENTITIES` and `SERVICE_IDENTITIES` module settings deny client writes until explicitly granted; see [services/AUTHORIZATION.md](services/AUTHORIZATION.md).
 
 Spacetime rejects removing existing columns or nonempty tables during automatic migration. Appended columns need defaults. See the [current migration rules](https://spacetimedb.com/docs/databases/automatic-migrations/).
 
@@ -45,3 +46,11 @@ After publishing, verify the live schema, the service reducers, and the client s
 ## Remote demo
 
 The map's demo database is `hackutd-richardson` on Maincloud, published with `DEMO_MODE=isolated`. It is separate from the operational Maincloud database `hackutd-535md`, where demos remain disabled. Both default targets are declared in `shared/spacetime.ts`. The root README documents remote demo deployment and the read-only / synthetic write connector checks. Never use the operational database as the demo target.
+
+## Prepared safety rollout (requires Anish's approval for operations)
+
+Publish only committed artifacts. The closure fix was first deployed to `hackutd-richardson` from `1ed231b`, after a populated local migration retained the fixture rows. It completes accepted assignments and ends open offers when a request closes, clears stale ETA, cancels pending callbacks and supersedes queued ride-status messages. Repeating `closeRequest` on an already closed request also repairs legacy accepted/open assignments without reopening it. Review those legacy rows before choosing which closed requests to repair in the operational database; do not reset or bulk rewrite them.
+
+Before the authorization rollout, obtain each portal user's stable connection identity and a separate persisted service identity. Configure both grant lists at publish time, leave operational `DEMO_MODE` unset, and retain all existing solver/feed secrets. Ungranted clients can still read public tables but their writes will fail. Arrange a coordinated service restart only after Anish approves it; do not start voice or messaging during verification. The current deployment gate prohibits publishing to or mutating `hackutd-535md`.
+
+Real transcripts use `recordCallTranscript`, which atomically records a final conversation and its private deduplication receipt. Deploy that reducer before switching running services to the new handler. No process automatically restarts when this code changes. Full setup, client token requirements and the separate public-read migration are documented in [services/AUTHORIZATION.md](services/AUTHORIZATION.md).

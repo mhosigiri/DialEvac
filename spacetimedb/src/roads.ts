@@ -1,4 +1,5 @@
 import { SenderError, t } from "spacetimedb/server";
+import { requireOperator } from "./authorization";
 import { spacetimedb } from "./schema";
 import { audit, type Tx } from "./core";
 import { requestReplan } from "./dispatch";
@@ -24,12 +25,14 @@ export function bumpRoads(tx: Tx) {
 export const closeRoad = spacetimedb.reducer(
   { externalId: t.string(), source: t.string(), street: t.string(), lat: t.f64(), lng: t.f64() },
   (ctx, closure) => {
+    requireOperator(ctx);
     if (!["manual", "driver", "resident", "feed"].includes(closure.source)) throw new SenderError(`unknown closure source ${closure.source}`);
     if (upsertClosure(ctx, { ...closure, active: true })) bumpRoads(ctx);
   },
 );
 
 export const reopenRoad = spacetimedb.reducer({ externalId: t.string() }, (ctx, { externalId }) => {
+  requireOperator(ctx);
   const existing = ctx.db.roadClosure.externalId.find(externalId);
   if (!existing) throw new SenderError("no such closure");
   if (upsertClosure(ctx, { ...existing, active: false })) bumpRoads(ctx);

@@ -7,6 +7,7 @@ import { driveSeconds, metersToSegment, type Point } from "./domain/geo";
 import { boardingSecondsFor, loadFor, vehicleCanServe, weightFor } from "./domain/need";
 import { isSolution, type Problem, type Solution } from "./domain/problem";
 import { solveHeuristic } from "./domain/heuristic";
+import { requireInternal } from "./authorization";
 
 // The real dispatcher. A scheduled procedure snapshots the world in one transaction, asks the
 // solver service (or the heuristic when it is unset, slow or down), and commits through writePlan
@@ -173,6 +174,7 @@ export function commit(tx: Tx, world: World, solution: Solution, fallbackReason?
 }
 
 export const replan = spacetimedb.procedure({ onSchedule: replanJob }, { arg: replanJob.rowType }, t.unit(), (ctx) => {
+  requireInternal(ctx);
   const world = ctx.withTx((tx) => buildWorld(tx));
   const { solution, fallbackReason } = solve(world.problem, ctx.http, ctx.env.SOLVER_URL, ctx.env.SOLVER_TOKEN);
   try {

@@ -3,6 +3,7 @@ import { spacetimedb } from "./schema";
 import { audit, control, endOpenOffer, runAt, liveAssignments, moveRequest, needsOf, OFFER_SECONDS, requestStatus, revokeAccepted, setAssignment, type Tx } from "./core";
 import { vehicleCanServe } from "./domain/need";
 import { OPEN_OFFER } from "./domain/status";
+import { requireOperator } from "./authorization";
 
 // Every dispatcher, stand-in or real, writes through writePlan, so the contract's rules hold for
 // all of them: offers only to vehicles that can serve the rider, never into an accepted run, one
@@ -110,6 +111,7 @@ export const proposePlan = spacetimedb.reducer(
     revoke: t.array(t.object("PlannedRevoke", { assignmentId: t.u64(), reason: t.string() })),
   },
   (ctx, { solver, offers, replace, revoke }) => {
+    requireOperator(ctx);
     writePlan(ctx, { solver, solveMs: 0, offers, replace, revoke, escalate: [] });
   },
 );

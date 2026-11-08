@@ -2,6 +2,7 @@ import { SenderError, t } from "spacetimedb/server";
 import { Timestamp } from "spacetimedb";
 import { spacetimedb } from "./schema";
 import { audit } from "./core";
+import { requireService } from "./authorization";
 
 const transcriptTurn = t.object("TranscriptTurn", { speaker: t.string(), text: t.string() });
 
@@ -10,6 +11,7 @@ const transcriptTurn = t.object("TranscriptTurn", { speaker: t.string(), text: t
 export const recordCallTranscript = spacetimedb.reducer({
   providerId: t.string(), callId: t.option(t.u64()), callbackId: t.option(t.u64()), phone: t.option(t.string()), turns: t.array(transcriptTurn),
 }, (ctx, { providerId, callId, callbackId, phone, turns }) => {
+  requireService(ctx);
   if (!providerId.trim()) throw new SenderError("conversation id is required");
   if ([callId !== undefined, callbackId !== undefined, phone !== undefined].filter(Boolean).length !== 1) throw new SenderError("supply exactly one call, callback or inbound phone link");
   if (turns.length > 2000) throw new SenderError("too many transcript turns");

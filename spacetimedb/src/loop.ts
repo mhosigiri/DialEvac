@@ -9,6 +9,7 @@ import { writePlan } from "./plans";
 import { isHazard, timingForHazard } from "./domain/hazard";
 import { metersBetween } from "./domain/geo";
 import { requireDemoDatabase } from "./demo-guard";
+import { requireInternal, requireOperator } from "./authorization";
 import { MOBILITIES, vehicleCanServe } from "./domain/need";
 
 // The night. Issuing the warning stamps the clock, sets every in-zone home's deadline, starts the
@@ -21,7 +22,10 @@ const VEHICLE_METERS_PER_SECOND = 11;
 const ARRIVED_METERS = 40;
 const SWEEP_SECONDS = 30;
 
-export const issueWarning = spacetimedb.reducer({ hazard: t.string() }, (ctx, { hazard }) => startNight(ctx, hazard));
+export const issueWarning = spacetimedb.reducer({ hazard: t.string() }, (ctx, { hazard }) => {
+  requireOperator(ctx);
+  startNight(ctx, hazard);
+});
 
 export function startNight(ctx: Tx, hazard: string) {
   if (!isHazard(hazard)) throw new SenderError(`unknown hazard ${hazard}`);
@@ -40,6 +44,7 @@ export function startNight(ctx: Tx, hazard: string) {
 export const setStandIns = spacetimedb.reducer(
   { simulateVoice: t.bool(), simulateDispatch: t.bool(), simulateDrivers: t.bool(), autoApprove: t.bool() },
   (ctx, flags) => {
+    requireOperator(ctx);
     ctx.db.control.id.update({ ...control(ctx), ...flags });
   },
 );
@@ -47,12 +52,14 @@ export const setStandIns = spacetimedb.reducer(
 export const setHazardOrigin = spacetimedb.reducer(
   { lat: t.f64(), lng: t.f64(), firstArrivalMinutes: t.f64(), metersPerMinute: t.f64() },
   (ctx, { lat, lng, firstArrivalMinutes, metersPerMinute }) => {
+    requireOperator(ctx);
     ctx.db.control.id.update({ ...control(ctx), originLat: lat, originLng: lng, firstArrivalMinutes, metersPerMinute });
   },
 );
 
 // Ends the night: the heartbeat sees a new generation and stops scheduling itself.
 export const endNight = spacetimedb.reducer((ctx) => {
+  requireOperator(ctx);
   const c = control(ctx);
   ctx.db.control.id.update({ ...c, warningAt: undefined, generation: c.generation + 1n });
   audit(ctx, "control", "night ended");
@@ -172,6 +179,7 @@ function standInRecord(a: number, b: number) {
 }
 
 export const tick = spacetimedb.reducer({ onSchedule: tickSchedule }, { timer: tickSchedule.rowType }, (ctx, { timer }) => {
+  requireInternal(ctx);
   const c = control(ctx);
   if (!c.warningAt || c.generation !== timer.generation || c.id !== CONTROL_ID) return;
   ctx.db.tickSchedule.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, TICK_SECONDS), generation: timer.generation });
