@@ -16,6 +16,8 @@ it.each(["hurricane", "flood", "wildfire"])("seeds one Houston %s phone interact
   expect([...h.db.call.iter()][0].phase).toBe("queued");
   expect(h.db.request.count()).toBe(0n);
   expect(h.db.zone.count()).toBe(1n);
+  const zone = [...h.db.zone.iter()][0];
+  expect(JSON.parse(zone.geometryJson!)).toEqual({ type: "Polygon", coordinates: JSON.parse(zone.rings) });
   expect(h.db.vehicle.count()).toBe(1n);
   expect(h.db.control.id.find(0)).toMatchObject({ warningAt: undefined, simulateVoice: false, simulateDrivers: false, autoApprove: false });
   const call = [...h.db.call.iter()][0];
@@ -26,4 +28,21 @@ it.each(["hurricane", "flood", "wildfire"])("seeds one Houston %s phone interact
   tx(ctx => seedHoustonVoiceStory(ctx, hazard));
   expect(h.db.call.count()).toBe(1n);
   expect(h.db.call.id.find(call.id)?.phase).toBe("ended");
+});
+
+it("backfills a previously seeded polygon without resetting the active survey or answers", () => {
+  const h = createModuleTestHarness(spacetimedb, moduleExports);
+  const tx = <T>(body: (ctx: Parameters<typeof moduleExports.seedHoustonVoiceDemo>[0]) => T) => h.withReducerTx(TestAuth.internal(), body);
+  tx(ctx => seedHoustonVoiceStory(ctx, "hurricane"));
+  const zone = [...h.db.zone.iter()][0], call = [...h.db.call.iter()][0];
+  tx(ctx => ctx.db.zone.id.update({ ...zone, geometryJson: undefined }));
+  tx(ctx => moduleExports.claimCall(ctx, { callId: call.id, providerId: "elevenlabs" }));
+  tx(ctx => moduleExports.recordCallAssessment(ctx, { callId: call.id, providerId: "mock-live", choice: "3", people: 2, oxygen: true }));
+  const home = [...h.db.household.iter()][0], request = [...h.db.request.iter()][0];
+  tx(ctx => seedHoustonVoiceStory(ctx, "flood"));
+  expect(h.db.zone.id.find(zone.id)).toEqual(zone);
+  expect(h.db.household.id.find(home.id)).toEqual(home);
+  expect(h.db.request.id.find(request.id)).toEqual(request);
+  expect(h.db.call.id.find(call.id)?.phase).toBe("live");
+  expect(h.db.call.count()).toBe(1n);
 });

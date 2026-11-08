@@ -13,8 +13,11 @@ export default {
           500: '#ef4444',
           600: '#dc2626',
           900: '#7f1d1d',
-        }
-      }
+        },
+      },
+      fontFamily: {
+        sans: ['Outfit', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+      },
     },
   },
   plugins: [],

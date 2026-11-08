@@ -4,7 +4,7 @@ import { audit, hazardAtFor, lineFor, liveAssignments, moveRequest, queueMessage
 import { insidePolygon } from "./domain/geo";
 import { isAssistance, isMobility } from "./domain/need";
 import { ESCALATIONS } from "./domain/status";
-import { startReachLadder } from "./reach";
+import { startReachLadder, sweepCoverage } from "./reach";
 import { SURVEY_ASK } from "./domain/script";
 import { requireOperator, requireRecordEditor, requireService } from "./authorization";
 
@@ -349,6 +349,11 @@ export const receiveMessage = spacetimedb.reducer(
 
 export const closeRequest = spacetimedb.reducer({ requestId: t.u64() }, (ctx, { requestId }) => {
   requireOperator(ctx);
+  closeRequestRecord(ctx, requestId);
+  sweepCoverage(ctx);
+});
+
+export function closeRequestRecord(ctx: Tx, requestId: bigint) {
   const request = ctx.db.request.id.find(requestId);
   if (!request) throw new SenderError("no such request");
   // Also repair legacy closed rows whose assignments were never released. No callback announces closure.
@@ -368,4 +373,4 @@ export const closeRequest = spacetimedb.reducer({ requestId: t.u64() }, (ctx, { 
   }
   if (requestStatus(request) !== "closed") moveRequest(ctx, request, "closed", null, { etaMinutes: undefined });
   else if (request.etaMinutes !== undefined) ctx.db.request.id.update({ ...request, etaMinutes: undefined, updatedAt: ctx.timestamp });
-});
+}

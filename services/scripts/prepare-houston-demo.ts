@@ -6,6 +6,7 @@ import { demoAgentConfig, demoContacts } from "../src/demo-handoff";
 import { env } from "../src/env";
 import { HOUSTON_DEMO } from "../../shared/demo";
 import { SPACETIME_DEMO_DATABASE, SPACETIME_URI } from "../../shared/spacetime";
+import { houstonConnection } from "./houston-connection";
 
 const { values } = parseArgs({ options: { seed: { type: "boolean", default: false }, hazard: { type: "string", default: "hurricane" } } });
 const hazard = values.hazard === "fire" ? "wildfire" : values.hazard;
@@ -34,6 +35,8 @@ if (values.seed) {
   });
   try {
     await connection.reducers.seedHoustonVoiceDemo({ hazard: hazard! });
+    const operator = await houstonConnection();
+    try { await operator.reducers.prepareHoustonDemo({}); } finally { operator.disconnect(); }
     console.log(`Houston synthetic fixture seeded on ${SPACETIME_DEMO_DATABASE}. Its phone is a fictional alias; seeding never dials.`);
   } finally { connection.disconnect(); }
 }

@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "portal-demo-db",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--host", "127.0.0.1", "--port", "3002", "--strictPort"],
+      "cwd": "dispatchers-portal",
+      "env": { "VITE_SPACETIME_DATABASE": "hackutd-richardson" },
+      "port": 3002
+    }
+  ]
+}

@@ -7,20 +7,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "../services/node_modules/.bin/tsx --test tests/*.test.ts tests/*.test.tsx",
     "generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path ../spacetimedb --no-config"
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-leaflet": "^4.2.1",
     "spacetimedb": "2.14.1",
     "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {
-    "@types/leaflet": "^1.9.14",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

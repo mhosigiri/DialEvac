@@ -1,14 +1,23 @@
-import React from "react";
-import { Ambulance, Car, Shield, Check, Navigation, AlertCircle } from "lucide-react";
+import React, { useMemo } from "react";
+import { Ambulance, Car } from "lucide-react";
 import type { Vehicle, Assignment, Request, Household } from "../module_bindings/types";
+import { Badge } from "../design-system/Badge";
+import { Card, CardDivider, CardHeader } from "../design-system/Card";
+import { DataTable } from "../design-system/DataTable";
+import { EmptyState } from "../design-system/EmptyState";
 
 interface DispatcherUnitsPanelProps {
   vehicles: readonly Vehicle[];
   assignments: readonly Assignment[];
   requests: readonly Request[];
   households: readonly Household[];
-  onSelectVehicle?: (vehicle: Vehicle) => void;
-  selectedVehicleId?: bigint;
+}
+
+function statusOf(vehicleId: bigint, assignments: readonly Assignment[]) {
+  const a = assignments.find(
+    (x) => x.vehicleId === vehicleId && (x.status === "accepted" || x.status === "offered")
+  );
+  return a;
 }
 
 export const DispatcherUnitsPanel: React.FC<DispatcherUnitsPanelProps> = ({
@@ -16,132 +25,85 @@ export const DispatcherUnitsPanel: React.FC<DispatcherUnitsPanelProps> = ({
   assignments,
   requests,
   households,
-  onSelectVehicle,
-  selectedVehicleId,
 }) => {
+  const rows = useMemo(
+    () =>
+      vehicles.map((v) => {
+        const active = statusOf(v.id, assignments);
+        const req = active ? requests.find((r) => r.id === active.requestId) : undefined;
+        const home = req ? households.find((h) => h.id === req.householdId) : undefined;
+        const status = active?.status === "accepted" ? "En route" : active?.status === "offered" ? "Offered" : "Available";
+        const tone = active?.status === "accepted" ? "warning" : active?.status === "offered" ? "info" : ("success" as const);
+        return {
+          Unit: (
+            <span className="flex items-center gap-1.5" style={{ fontWeight: 500, minWidth: 0 }}>
+              {v.kind === "ambulance" ? (
+                <Ambulance className="w-3.5 h-3.5 shrink-0" style={{ color: "#9a9aa0" }} />
+              ) : (
+                <Car className="w-3.5 h-3.5 shrink-0" style={{ color: "#9a9aa0" }} />
+              )}
+              <span style={{ minWidth: 0, lineHeight: 1.35 }}>
+                {v.name}
+                {v.lift ? " · Lift" : ""}
+              </span>
+            </span>
+          ),
+          Status: <Badge tone={tone} dot={active?.status === "offered"}>{status}</Badge>,
+          Assignment: home ? home.address : "—",
+          ETA: active?.etaMinutes != null ? `${active.etaMinutes}m` : "—",
+        };
+      }),
+    [vehicles, assignments, requests, households]
+  );
+
+  const enRoute = assignments.filter((a) => a.status === "accepted").length;
+  const offered = assignments.filter((a) => a.status === "offered").length;
+
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col h-full shadow-lg">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-sky-400" />
-          <h2 className="font-bold text-sm text-slate-100">Rescue Fleet & Units</h2>
-        </div>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-          {vehicles.length} Units Online
-        </span>
-      </div>
-
-      <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-        {vehicles.length === 0 ? (
-          <div className="text-center py-8 text-xs text-slate-500">
-            No active rescue units loaded in SpacetimeDB.
+    <Card label="Rescue fleet" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <CardHeader
+        title="Rescue fleet"
+        subtitle={`${vehicles.length} units · ${enRoute} en route · ${offered} offered`}
+        action={<Badge tone="neutral">{vehicles.length} {vehicles.length === 1 ? "unit" : "units"}</Badge>}
+      />
+      {vehicles.length === 0 ? (
+        <EmptyState title="No rescue units loaded" detail="No active rescue units loaded in SpacetimeDB." />
+      ) : (
+        <div style={{ overflowY: "auto", minHeight: 0 }}>
+          <DataTable
+            label="Rescue fleet"
+            minWidth={0}
+            columns={[
+              { key: "Unit", header: "Unit", strong: true },
+              { key: "Status", header: "Status", width: 92 },
+              { key: "ETA", header: "ETA", width: 36 },
+            ]}
+            rows={rows}
+          />
+          <CardDivider />
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              background: "#1a1a1f",
+              border: "1px solid #26262c",
+              borderRadius: "12px",
+              padding: "9px 12px",
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: "#c2c2c9",
+            }}
+          >
+            <span style={{ fontWeight: 700, color: "#f5f5f6", whiteSpace: "nowrap" }}>
+              {enRoute + offered} tasked
+            </span>
+            <span>
+              {enRoute} en route · {offered} awaiting driver answer · {Math.max(0, vehicles.length - enRoute - offered)} staged.
+            </span>
           </div>
-        ) : (
-          vehicles.map((v) => {
-            // Find active assignment for this vehicle
-            const activeAssignment = assignments.find(
-              (a) => a.vehicleId === v.id && (a.status === "accepted" || a.status === "offered")
-            );
-            const assignedRequest = activeAssignment
-              ? requests.find((r) => r.id === activeAssignment.requestId)
-              : undefined;
-            const assignedHousehold = assignedRequest
-              ? households.find((h) => h.id === assignedRequest.householdId)
-              : undefined;
-
-            const isSelected = selectedVehicleId === v.id;
-
-            return (
-              <div
-                key={String(v.id)}
-                onClick={() => onSelectVehicle?.(v)}
-                className={`p-3 rounded-xl border transition cursor-pointer ${
-                  isSelected
-                    ? "bg-sky-950/40 border-sky-500/80 shadow-md shadow-sky-950/40"
-                    : "bg-slate-950/50 border-slate-800/80 hover:border-slate-700 hover:bg-slate-950/80"
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`p-2 rounded-lg ${
-                        v.kind === "ambulance"
-                          ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                          : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
-                      }`}
-                    >
-                      {v.kind === "ambulance" ? (
-                        <Ambulance className="w-4 h-4" />
-                      ) : (
-                        <Car className="w-4 h-4" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-xs text-slate-100 flex items-center gap-1.5">
-                        <span>{v.name}</span>
-                        {v.lift && (
-                          <span className="text-[10px] px-1 rounded bg-amber-500/20 text-amber-300 font-mono">
-                            LIFT
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-400">Driver: {v.driverName}</div>
-                    </div>
-                  </div>
-
-                  {/* Status Badge */}
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                      activeAssignment?.status === "accepted"
-                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                        : activeAssignment?.status === "offered"
-                        ? "bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse"
-                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                    }`}
-                  >
-                    {activeAssignment?.status === "accepted"
-                      ? "En Route"
-                      : activeAssignment?.status === "offered"
-                      ? "Offered"
-                      : "Available"}
-                  </span>
-                </div>
-
-                {/* Capabilities pills */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400">
-                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    Seats: {v.seats}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    ♿ {v.wheelchairSpaces}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    🛏️ {v.stretcherSpaces}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                    Crew: {v.crew}
-                  </span>
-                </div>
-
-                {/* Active Mission Destination if Assigned */}
-                {assignedHousehold && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-1.5 text-slate-300 truncate">
-                      <Navigation className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      <span className="truncate">{assignedHousehold.address}</span>
-                    </div>
-                    {activeAssignment?.etaMinutes && (
-                      <span className="text-amber-400 font-semibold shrink-0">
-                        {activeAssignment.etaMinutes}m ETA
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </Card>
   );
 };

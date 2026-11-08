@@ -20,7 +20,9 @@ export { issueWarning, setStandIns, setHazardOrigin, endNight, seedStandInTown, 
 export { pollFeeds, startFeeds, replayWarning } from "./feeds";
 export { seedAssistanceDemo, advanceAssistanceDemo } from "./demos";
 export { recordCallTranscript } from "./transcripts";
+export { recordProviderCall, claimCallAnalysis, finishCallAnalysis, retryCallAnalysis } from "./call-records";
 export { recordCallAssessment } from "./households";
-export { seedHoustonVoiceDemo } from "./houston-demo";
+export { seedHoustonVoiceDemo, startDemoOutboundAttempt } from "./houston-demo";
 export { notifyResident, reportCallHandoff } from "./coordination";
-export { requestDispatchRoute, calculateDispatchRoute } from "./routes";
+export { requestDispatchRoute, calculateDispatchRoute, recordDispatchRoute, expireDispatchRoute } from "./routes";
+export { prepareHoustonDemo, simulateCatastrophe, simulateAssessment, matchClosestDispatcher, simulateFollowUp, simulateResidentDelivery } from "./houston-workflow";

@@ -68,10 +68,11 @@ jobs:
           npm run build
           npm test
           npx tsc --noEmit
-      - name: Portal typecheck and production build
+      - name: Portal typecheck, tests and production build
         working-directory: dispatchers-portal
         run: |
           npm run build
+          npm test
       - name: Solver tests
         working-directory: dispatch
         run: |

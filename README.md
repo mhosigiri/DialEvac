@@ -162,3 +162,7 @@ The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That 
 - Spanish calls. The ElevenLabs agent speaks English only for now.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
 - A production operations map. `map/` shows warnings and the fleet; the HAND flood, thunderstorm and hurricane layers are illustrative.
+
+### One-phone judge demonstration
+
+From `services/`, `npm run demo:outbound` performs a read-only preflight. `npm run demo:outbound -- --call --attempt judges-01 --wait` deliberately calls only the configured resident and follows the transcript/Claude result. Each attempt name is single-use. The approved live test currently fails with SIP 603 Decline before connection; see [the outbound runbook](services/OUTBOUND_DEMO.md) for the verified issue and next provider diagnostic.

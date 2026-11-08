@@ -9,18 +9,22 @@ export const notifyResident = spacetimedb.reducer({ requestId: t.u64() }, (ctx, 
   const accepted = liveAssignments(ctx, requestId, ["accepted"])[0];
   if (!request || !["driver_accepted", "en_route"].includes(request.status) || !accepted) throw new SenderError("An active accepted assignment is required before notifying the resident");
   const key = `${requestId}:${accepted.id}`;
-  if (ctx.db.residentNotice.key.find(key)) return;
+  const notice = ctx.db.residentNotice.key.find(key);
+  let message = (notice && ctx.db.message.id.find(notice.messageId)) ?? undefined;
   // Acceptance already queues the honest update. A dispatcher click reuses that delivery row.
   const callback = ctx.db.callback.key.find(`${requestId}:${accepted.id}:driver_accepted`);
-  let message = callback && [...ctx.db.message.householdId.filter(request.householdId)]
-    .find(m => m.direction === "out" && m.requestStatus === "driver_accepted" && m.body === callback.line && m.at.microsSinceUnixEpoch === callback.at.microsSinceUnixEpoch);
+  message ??= (callback && [...ctx.db.message.householdId.filter(request.householdId)]
+    .find(m => m.direction === "out" && m.requestStatus === "driver_accepted" && m.body === callback.line && m.at.microsSinceUnixEpoch === callback.at.microsSinceUnixEpoch)) ?? undefined;
   if (!message) {
     const before = new Set([...ctx.db.message.householdId.filter(request.householdId)].map(m => m.id));
     queueMessage(ctx, request.householdId, lineFor(ctx, request), request.status as "driver_accepted" | "en_route");
     message = [...ctx.db.message.householdId.filter(request.householdId)].find(m => !before.has(m.id));
   }
   if (!message) throw new SenderError("notification was not queued");
-  ctx.db.residentNotice.insert({ key, requestId, assignmentId: accepted.id, messageId: message.id, at: ctx.timestamp });
+  // The operator owns explicit failed-delivery retries. Preserve the message ID (and thus the
+  // provider idempotency key), and never resend queued, sending, waiting or delivered work.
+  if (message.state === "failed") ctx.db.message.id.update({ ...message, state: "queued", error: undefined });
+  if (!notice) ctx.db.residentNotice.insert({ key, requestId, assignmentId: accepted.id, messageId: message.id, at: ctx.timestamp });
 });
 
 const HANDOFF_MOVES: Record<string, readonly string[]> = {

@@ -17,3 +17,6 @@ reference_images/
 
 **/src/module_bindings/
 map/assets/spacetime.js
+.playwright-mcp/
+
+.omh/

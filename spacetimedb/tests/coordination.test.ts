@@ -50,6 +50,40 @@ it("stores masked handoff status once and does not regress a confirmed or failed
   expect(() => tx(ctx => moduleExports.reportCallHandoff(ctx, { ...update, targetLabel: "+17135550100" }))).toThrow(/phone/);
 });
 
+it.each([false, true])("lets the operator retry the same failed acceptance message (notice recorded: %s)", recorded => {
+  const { h, tx, request, assignment } = fixture();
+  tx(ctx => moduleExports.approveOffer(ctx, { assignmentId: assignment.id }));
+  tx(ctx => moduleExports.acceptOffer(ctx, { assignmentId: assignment.id }));
+  if (recorded) tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  const message = [...h.db.message.iter()][0];
+  tx(ctx => moduleExports.claimMessage(ctx, { messageId: message.id }));
+  tx(ctx => moduleExports.messageFailed(ctx, { messageId: message.id, error: "Provider unavailable" }));
+  tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  expect(h.db.message.count()).toBe(1n);
+  expect(h.db.message.id.find(message.id)).toEqual({ ...message, state: "queued", error: undefined });
+  expect([...h.db.residentNotice.iter()][0].messageId).toBe(message.id);
+  tx(ctx => moduleExports.claimMessage(ctx, { messageId: message.id }));
+  tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  expect(h.db.message.id.find(message.id)?.state).toBe("sending");
+  tx(ctx => moduleExports.messageSent(ctx, { messageId: message.id, providerId: "mock-delivered" }));
+  tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  expect(h.db.message.id.find(message.id)?.state).toBe("sent");
+  expect(h.db.message.count()).toBe(1n);
+});
+
+it("does not retry a failed notice after its request is closed", () => {
+  const { h, tx, request, assignment } = fixture();
+  tx(ctx => moduleExports.approveOffer(ctx, { assignmentId: assignment.id }));
+  tx(ctx => moduleExports.acceptOffer(ctx, { assignmentId: assignment.id }));
+  tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }));
+  const message = [...h.db.message.iter()][0];
+  tx(ctx => moduleExports.messageFailed(ctx, { messageId: message.id, error: "Provider unavailable" }));
+  tx(ctx => moduleExports.closeRequest(ctx, { requestId: request.id }));
+  expect(() => tx(ctx => moduleExports.notifyResident(ctx, { requestId: request.id }))).toThrow(/accepted/);
+  expect(h.db.message.id.find(message.id)?.state).toBe("failed");
+});
+
 it("retains a provider failure observed after call end without exposing phone details", () => {
   const { h, tx, call } = fixture();
   tx(ctx => moduleExports.callEnded(ctx, { callId: call.id, outcome: "answered" }));

@@ -265,3 +265,12 @@ test("a queued call is claimed and dialed, and a failed dial is recorded", async
   await jobs[1]();
   assert.deepEqual(log, ["claim:5:elevenlabs", "claim:5:elevenlabs", "ended:5:failed"]);
 });
+
+test("the normal voice runner never claims a fictional Houston survey or places its callback", () => {
+  const { db, log } = voiceDb();
+  db.household = () => ({ id: 9n, phone: "+17135550100", language: "en", name: "Synthetic Houston resident" });
+  db.onPendingCallback = handler => handler({ id: 7n, householdId: 9n, line: "Synthetic notice", state: "pending" } as Parameters<typeof handler>[0]);
+  let queued = 0, dialed = 0;
+  startRunners(db, () => { queued++; }, { survey: async () => { dialed++; }, callback: async () => { dialed++; } });
+  assert.equal(queued, 0); assert.equal(dialed, 0); assert.deepEqual(log, []);
+});

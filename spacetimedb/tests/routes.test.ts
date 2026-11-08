@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { TimeDuration } from "spacetimedb";
 import { createModuleTestHarness, TestAuth } from "spacetimedb/server/test-utils";
 import * as moduleExports from "../src/index";
 import { spacetimedb } from "../src/schema";
@@ -36,6 +37,37 @@ it("records provider failure with no invented straight-line route", () => {
   expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], distanceMeters: undefined, durationSeconds: undefined });
   expect(() => parseRoadRoute({ code: "NoRoute" })).toThrow(/Invalid/);
   expect(() => parseRoadRoute({ code: "Ok", routes: [{ distance: 1, duration: 1, geometry: { type: "LineString", coordinates: [[-95, 29], [NaN, 29]] } }] })).toThrow(/coordinates/);
+});
+
+it("allows a stale pending route to be requested again and rejects its late result and timeout", () => {
+  const { h, tx, a, snapshot, body } = fixture();
+  const oldTimeout = [...h.db.routeTimeout.iter()][0];
+  h.clock.advance(TimeDuration.fromMillis(29_999));
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.revision).toBe(snapshot.revision);
+  h.clock.advance(TimeDuration.fromMillis(1));
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  const fresh = h.db.dispatchRoute.assignmentId.find(a.id)!;
+  expect(fresh.revision).toBe(snapshot.revision + 1n);
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  tx(ctx => moduleExports.expireDispatchRoute(ctx, { arg: oldTimeout }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toEqual(fresh);
+  tx(ctx => commitRoadRoute(ctx, fresh, parseRoadRoute(body)));
+  const freshTimeout = [...h.db.routeTimeout.iter()].find(job => job.revision === fresh.revision)!;
+  tx(ctx => moduleExports.expireDispatchRoute(ctx, { arg: freshTimeout }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("ready");
+});
+
+it("expires an abandoned route so the portal can retry and cannot be revived by its late procedure", () => {
+  const { h, tx, a, snapshot, body } = fixture();
+  const timeout = [...h.db.routeTimeout.iter()][0];
+  h.clock.advance(TimeDuration.fromMillis(30_000));
+  tx(ctx => moduleExports.expireDispatchRoute(ctx, { arg: timeout }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: expect.stringContaining("timed out") });
+  tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("failed");
+  tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "pending", revision: snapshot.revision + 1n });
 });
 
 it("rejects stale responses after closure and when the responder location changes", () => {
@@ -76,4 +108,33 @@ it("runs the internal OSRM procedure and commits only the real returned road geo
   expect(url).toContain("https://router.example.test/route/v1/driving/");
   expect(url).toContain("geometries=geojson");
   expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("ready");
+});
+
+it("lets the service bridge recover a provider failure while preserving stale-result and closure checks", () => {
+  const { h, tx, snapshot, body, a, request } = fixture();
+  tx(ctx => commitRoadRoute(ctx, snapshot, undefined, "Routing provider unavailable"));
+  const result = parseRoadRoute(body);
+  const update = { assignmentId: a.id, revision: snapshot.revision, ...result, failureReason: undefined };
+  tx(ctx => moduleExports.recordDispatchRoute(ctx, { ...update, revision: snapshot.revision + 1n }));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("failed");
+  tx(ctx => moduleExports.recordDispatchRoute(ctx, update));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)?.state).toBe("ready");
+  tx(ctx => moduleExports.closeRequest(ctx, { requestId: request.id }));
+  tx(ctx => moduleExports.recordDispatchRoute(ctx, update));
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Request closed" });
+});
+
+it("logs the native HTTP status for diagnosis while keeping provider details out of the public failure row", () => {
+  const { h, a } = fixture(), job = [...h.db.routeJob.iter()][0];
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const base = h.procedureContextBuilder(TestAuth.internal()).http(() => ({ code: 403, version: { tag: "Http11" }, headers: { entries: [] }, body: "Provider detail" })).build();
+    const ctx = new Proxy(base, { get: (target, key) => {
+      if (key === "env") return {};
+      const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    moduleExports.calculateDispatchRoute(ctx, { arg: job });
+    expect(log).toHaveBeenCalledWith("[routing] native OSRM fetch failed", "Error: Routing provider returned HTTP 403");
+    expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Routing provider unavailable or no valid road route returned" });
+  } finally { log.mockRestore(); }
 });

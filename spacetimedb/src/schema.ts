@@ -324,7 +324,7 @@ const residentNotice = table({ name: "resident_notice" }, {
   key: t.string().primaryKey(), requestId: t.u64(), assignmentId: t.u64(), messageId: t.u64(), at: t.timestamp(),
 });
 
-const routePoint = t.object("RoutePoint", { lat: t.f64(), lng: t.f64() });
+export const routePoint = t.object("RoutePoint", { lat: t.f64(), lng: t.f64() });
 const dispatchRoute = table({ name: "dispatch_route", public: true }, {
   assignmentId: t.u64().primaryKey(), requestId: t.u64().index("btree"), vehicleId: t.u64(),
   originLat: t.f64(), originLng: t.f64(), destinationLat: t.f64(), destinationLng: t.f64(), points: t.array(routePoint),
@@ -333,6 +333,36 @@ const dispatchRoute = table({ name: "dispatch_route", public: true }, {
 });
 export const routeJob = table({ name: "route_job" }, {
   scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), assignmentId: t.u64(), revision: t.u64(),
+});
+export const routeTimeout = table({ name: "route_timeout" }, {
+  scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), assignmentId: t.u64(), revision: t.u64(),
+});
+
+const catastropheCase = table({ name: "catastrophe_case", public: true }, {
+  householdId: t.u64().primaryKey(), zoneId: t.u64().index("btree"), hazard: t.string(), runId: t.string(),
+  callId: t.option(t.u64()), duringSnapshotJson: t.option(t.string()), simulated: t.bool(), updatedAt: t.timestamp(),
+});
+const followUp = table({ name: "follow_up", public: true }, {
+  householdId: t.u64().primaryKey(), requestId: t.u64(), state: t.string(), simulated: t.bool(),
+  questions: t.array(t.object("FollowUpAnswer", { key: t.string(), prompt: t.string(), answer: t.string() })),
+  duringSnapshotJson: t.string(), changesJson: t.string(),
+  insuranceSelf: t.option(t.bool()), insuranceVehicle: t.option(t.bool()), insuranceProperty: t.option(t.bool()), updatedAt: t.timestamp(),
+});
+
+// Provider history is independent of household matching: an unknown caller must never be lost.
+export const providerTranscriptTurn = t.object("ProviderTranscriptTurn", { speaker: t.string(), text: t.string() });
+const callRecord = table({ name: "call_record", public: true }, {
+  providerId: t.string().primaryKey(), agentId: t.string(), callId: t.option(t.u64()), householdId: t.option(t.u64()),
+  direction: t.string(), status: t.string(), callerLabel: t.string(), startedAt: t.option(t.timestamp()), durationSeconds: t.option(t.f64()),
+  turns: t.array(providerTranscriptTurn), revision: t.u64(), recordedAt: t.timestamp(), updatedAt: t.timestamp(),
+});
+const callAnalysis = table({ name: "call_analysis", public: true }, {
+  providerId: t.string().primaryKey(), revision: t.u64(), state: t.string(), resultJson: t.option(t.string()),
+  model: t.option(t.string()), error: t.option(t.string()), attempts: t.u32(), claimToken: t.option(t.string()),
+  leaseUntil: t.option(t.timestamp()), nextAttemptAt: t.timestamp(), updatedAt: t.timestamp(),
+});
+const outboundDemoAttempt = table({ name: "outbound_demo_attempt", public: true }, {
+  attemptId: t.string().primaryKey(), callId: t.u64(), householdId: t.u64(), createdAt: t.timestamp(),
 });
 
 export const spacetimedb = schema(
@@ -365,6 +395,12 @@ export const spacetimedb = schema(
     residentNotice,
     dispatchRoute,
     routeJob,
+    routeTimeout,
+    catastropheCase,
+    followUp,
+    callRecord,
+    callAnalysis,
+    outboundDemoAttempt,
   },
   {
     env: {

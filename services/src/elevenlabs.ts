@@ -27,7 +27,7 @@ export async function outboundCall(to: string, variables: CallVariables, firstMe
       ...(firstMessage ? { conversationConfigOverride: { agent: { firstMessage } } } : {}),
     },
     telephonyCallConfig: { ringingTimeoutSecs: 30 },
-  });
+  }, { maxRetries: 0, timeoutInSeconds: 45 });
   if (!result.success) throw new Error(`ElevenLabs did not start the call: ${result.message}`);
   return result.conversationId ?? "elevenlabs";
 }

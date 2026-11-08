@@ -2,12 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+  --ds-bg: #060607;
+  --ds-surface: #131316;
+  --ds-surface-raised: #1a1a1f;
+  --ds-surface-inset: #0e0e11;
+  --ds-border: #26262c;
+  --ds-border-strong: #33333a;
+  --ds-text: #f5f5f6;
+  --ds-text-secondary: #c2c2c9;
+  --ds-text-muted: #a3a3aa;
+  --ds-accent: #8fb0ff;
+  --ds-success: #3dd68c;
+  --ds-warning: #e8b84b;
+  --ds-danger: #f87171;
+  --ds-radius-control: 12px;
+  --ds-radius-card: 16px;
+  --ds-radius-panel: 20px;
+}
+
+html {
+  background: var(--ds-bg);
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #020617;
-  color: #f8fafc;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--ds-bg);
+  color: var(--ds-text);
   overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(143 176 255 / 60%);
+}
+
+/* Skeleton shimmer. Disabled under prefers-reduced-motion below. */
+@keyframes ds-skeleton-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+
+.ds-skeleton-line {
+  background-image: linear-gradient(
+    90deg,
+    #2e2e36 25%,
+    #232329 50%,
+    #2e2e36 75%
+  );
+  background-size: 400px 100%;
+  animation: ds-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-skeleton-line {
+    animation: none;
+    background-image: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Queue density grid: side-by-side on wide screens, stacked below 900px. */
+.ds-queue-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .ds-queue-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Custom scrollbar */
@@ -16,24 +101,115 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #2e2e36;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #3f3f47;
 }
 
-/* Leaflet dark styling */
-.leaflet-container {
+/* Embedded live map (map/ iframe) */
+.eoc-map-frame {
+  border: 0;
   width: 100%;
   height: 100%;
-  background: #090d16 !important;
-  font-family: inherit;
 }
 
-.leaflet-tile-pane {
-  filter: brightness(0.7) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+/* The board owns both axes: columns stay aligned while their card stacks scroll. */
+.eoc-board {
+  align-items: stretch;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 2px;
+  scroll-snap-type: x proximity;
+  scrollbar-color: #4a4a52 var(--ds-surface);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.eoc-board-column {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 200px);
+  min-height: 480px;
+  max-height: 920px;
+  scroll-snap-align: start;
+}
+
+.eoc-board-column-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: #4a4a52 transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+/* On the overview, all three operational surfaces share the remaining desktop
+   height. Their own scroll regions keep every case and unit reachable. The
+   existing grid-column scopes exclude the dedicated Fleet and Map views. */
+.xl\:col-span-4 > section[aria-label="Evacuation queue"],
+.xl\:col-span-3 > section[aria-label="Rescue fleet"] {
+  height: clamp(360px, calc(100vh - 520px), 640px) !important;
+}
+
+@media (max-width: 1023px) {
+  .eoc-board-column {
+    height: min(680px, calc(100vh - 56px));
+    min-height: 480px;
+  }
+}
+
+/* Compact icon-strip rail below ~768px. Labels stay in the accessibility tree. */
+@media (max-width: 767px) {
+  .eoc-header,
+  main.flex-1 {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .eoc-utility {
+    flex-wrap: wrap;
+  }
+  .eoc-search {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+  }
+  .eoc-board {
+    grid-auto-columns: minmax(264px, calc(100vw - 104px)) !important;
+  }
+  .eoc-board-column {
+    height: 620px;
+    min-height: 0;
+  }
+  .eoc-rail {
+    width: 56px !important;
+    margin: 8px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  .eoc-rail .eoc-rail-logo {
+    width: 36px !important;
+    height: 36px !important;
+  }
+  .eoc-rail .eoc-rail-wordmark,
+  .eoc-rail .eoc-rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .eoc-rail .eoc-rail-item {
+    width: 44px !important;
+  }
+}
+
+.eoc-menu-item:hover:not(:disabled),
+.eoc-menu-item:focus-visible {
+  background: #2c2c33 !important;
+  outline: none;
 }

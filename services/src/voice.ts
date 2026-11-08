@@ -140,11 +140,11 @@ async function readBody(req: http.IncomingMessage, limit = Infinity) {
   return Buffer.concat(chunks).toString();
 }
 
-export function createServer(db: Contract) {
+export function createServer(db: Contract, options: { onWebhook?: (event: WebhookEvent) => Promise<void>; capabilities?: Record<string, unknown> } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (req.method === "GET" && url.pathname === "/health") return void res.writeHead(200).end("ok");
-    if (req.method === "GET" && url.pathname === "/capabilities") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ liveAssessment: true, ...db.target }));
+    if (req.method === "GET" && url.pathname === "/capabilities") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ liveAssessment: true, ...db.target, ...options.capabilities }));
     if (req.method === "POST" && ["/elevenlabs/assessment", "/elevenlabs/handoff"].includes(url.pathname)) {
       let body: unknown;
       try { body = JSON.parse(await readBody(req, 16_384)); } catch { return void res.writeHead(400).end(); }
@@ -161,9 +161,11 @@ export function createServer(db: Contract) {
       );
     }
     if (req.method !== "POST" || url.pathname !== "/elevenlabs/webhook") return void res.writeHead(404).end();
-    const event = await verifiedEvent(await readBody(req), req.headers["elevenlabs-signature"] as string | undefined, env.elevenlabs.webhookSecret());
+    let raw: string;
+    try { raw = await readBody(req, 2_000_000); } catch { return void res.writeHead(413).end(); }
+    const event = await verifiedEvent(raw, req.headers["elevenlabs-signature"] as string | undefined, env.elevenlabs.webhookSecret());
     if (!event) return void res.writeHead(401).end();
-    return handleElevenlabsEvent(db, event).then(
+    return (options.onWebhook ? options.onWebhook(event) : handleElevenlabsEvent(db, event)).then(
       () => void res.writeHead(200).end(),
       (error: unknown) => {
         console.error("[voice] ElevenLabs webhook failed", error);
