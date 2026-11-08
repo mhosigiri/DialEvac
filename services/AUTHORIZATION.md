@@ -32,10 +32,14 @@ The initial connection can read public tables but cannot dispatch until its **id
 
 Create a separate Spacetime identity/token for the service, persist the token in a private secret store or `.env` as `SPACETIME_TOKEN`, and grant its actual connection identity through `SERVICE_IDENTITIES`. `services/src/db.ts` already supplies that token through `.withToken(...)`. Voice and messaging may share a dedicated service identity, or each can have a listed identity. Do not use an operator token for services.
 
-A valid token's identity is the `identity` argument returned by SDK `onConnect`; do not use the database identity, provider API key, or an unverified decoded JWT claim as a substitute. A publisher can grant or revoke roles using an environment-only publish; unspecified environment values are retained. For example, for the **isolated demo**:
+A valid token's identity is the `identity` argument returned by SDK `onConnect`; do not use the database identity, provider API key, or an unverified decoded JWT claim as a substitute. A publisher can grant or revoke roles using an environment-only publish; unspecified environment **keys** are retained, but supplying a key replaces its **entire list**. Anish owns portal grants. First read the current lists and include every existing identity when adding one. Omitting an existing identity revokes it. For example, for the **isolated demo**:
 
 ```sh
-OPERATOR_IDENTITIES='<portal identity hex>' SERVICE_IDENTITIES='<service identity hex>' \
+spacetime env get hackutd-richardson OPERATOR_IDENTITIES --server maincloud --no-config
+spacetime env get hackutd-richardson SERVICE_IDENTITIES --server maincloud --no-config
+
+# Include the current list plus the new identity. Omit any key that is not changing.
+OPERATOR_IDENTITIES='<all current operator identities>,<new portal identity hex>' \
   spacetime publish hackutd-richardson --server maincloud --env-only --no-config --yes=remote,migrate,skip-login
 ```
 

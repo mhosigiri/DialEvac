@@ -114,7 +114,7 @@ export function buildCases(tables: Tables): CaseRow[] {
   }
   // Resolve each run once, rather than scanning it and looking up its households per case.
   const runs = new Map(tables.vehicles.map(v => [v.id, runFor(v, assignmentsByVehicle.get(v.id) ?? [], requestsById, homesById)]));
-  return tables.households.map(household => {
+  return tables.households.filter(household => household.inZone).map(household => {
     const request = requestsByHome.get(household.id);
     const assignment = request && request.status !== "closed" ? assignmentsByRequest.get(request.id) : undefined;
     const call = callsByHome.get(household.id);

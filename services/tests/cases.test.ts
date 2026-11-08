@@ -162,3 +162,9 @@ test("both cleared coverage accounts sort after unresolved cases even with neare
   assert.equal(rows[0].household.id, 2n);
   assert.deepEqual(new Set(rows.slice(1).map(row => row.account)), new Set(["leaving_on_own", "helped"]));
 });
+
+test("idle households outside the affected zone are absent from cases and cannot be labeled overlooked", () => {
+  const rows = buildCases(tables({ households: [home({ id: 1n, inZone: false, reach: "idle", canLeave: undefined }), home({ id: 2n, inZone: true, reach: "idle", canLeave: undefined })], requests: [] }));
+  assert.deepEqual(rows.map(row => row.household.id), [2n]);
+  assert.equal(rows[0].account, "overlooked"); // In-zone silence remains unresolved.
+});
