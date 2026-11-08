@@ -1,4 +1,5 @@
 import type { Household, Vehicle, Request } from "../module_bindings/types";
+import { needsOf, vehicleCanServe as serverVehicleCanServe } from "../../../spacetimedb/src/domain/need";
 
 export interface GeoPoint {
   lat: number;
@@ -38,22 +39,7 @@ export function vehicleCanServe(
   vehicle: Vehicle,
   request: Pick<Request, "people" | "mobility" | "oxygen" | "assistance">
 ): boolean {
-  // Check seat capacity
-  if (vehicle.seats < request.people) return false;
-
-  // Check mobility
-  if (request.mobility === "wheelchair") {
-    if (vehicle.wheelchairSpaces < 1 && !vehicle.lift) return false;
-  } else if (request.mobility === "bedbound") {
-    if (vehicle.stretcherSpaces < 1 || vehicle.crew < 2) return false;
-  }
-
-  // Check two-person lift
-  if (request.assistance === "two_person_lift" && vehicle.crew < 2) {
-    return false;
-  }
-
-  return true;
+  return serverVehicleCanServe(vehicle, needsOf(request));
 }
 
 export interface DispatcherProximityMatch {
