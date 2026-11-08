@@ -7,7 +7,8 @@ dist/
 spacetimedb/.spacetime/
 spacetimedb/target/
 services/src/module_bindings/
-web/src/module_bindings/
+map/src/module_bindings/
+map/assets/spacetime.js
 .venv/
 __pycache__/
 .pytest_cache/
