@@ -47,3 +47,14 @@ Server runs on: **`http://localhost:3001`**
 Connected to SpacetimeDB: **`wss://maincloud.spacetimedb.com`** (Database: `hackutd-535md`).
 
 The default URI and database are shared with the services and public map through `shared/spacetime.ts`. `VITE_SPACETIME_URI` and `VITE_SPACETIME_DATABASE` in `.env` can override them. Household transcripts are joined through the household's call IDs. Run `cd services && npm run check:connections` from the repository root to verify all application table subscriptions.
+
+
+## Outreach page
+
+Open **Outreach** in the sidebar, or `http://localhost:3001/?view=outreach`. This page reuses the portal's sidebar, page header, cards, stats, buttons, badges and tabs.
+
+Launch 72, 144 or 288 concurrent household conversations, select a household to follow its speech stream, or use **All calls** to inspect activity across the incident. Switch between flood, wildfire, hurricane and tornado to show different question paths. Pause, change speed, scrub the timeline, reset, export JSON logs, and optionally enable browser TTS for the selected agent.
+
+For video recording, this page uses deterministic synthetic conversations with asynchronous IndexedDB session persistence. It places no phone calls and does not write operational household or dispatch records. Reloading or returning to Outreach restores the saved timeline, incident and selected household in a paused state. Caller and dispatcher STT turns are scripted; the optional agent audio uses browser speech synthesis. The operational Calls inbox remains connected to provider transcripts.
+
+The shared catastrophe questions also feed the service's voice-agent prompt and approved speech phrases. Deploying that prompt to an existing provider agent follows the existing voice configuration workflow; opening Outreach does not change a deployed agent.

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="thumbnails/logo.png" alt="DialEvac Logo" width="130" style="border-radius: 24px;" />
+</p>
+
 # DialEvac: Autonomous Disaster Outreach, Triage & Evacuation Routing at Scale
 
 Built for **HackUTD 2026** — addressing the **State Farm Prompt**, **SpacetimeDB Track**, and **Photon Track**.
@@ -287,7 +291,7 @@ Key variables:
 - `ELEVENLABS_API_KEY` & `ELEVENLABS_AGENT_ID`: Voice AI agent credentials
 - `ANTHROPIC_API_KEY`: Claude structured clinical analysis
 - `GEMINI_API_KEY`: Gemini AI route clearance briefings
-- `PHOTON_SIP_*` & `PHOTON_API_KEY`: Photon telephony trunk & messaging API
+- `PHOTON_SIP_*`, `PHOTON_PROJECT_ID` & `PHOTON_PROJECT_SECRET`: Photon telephony trunk & messaging API
 
 ### 2. SpacetimeDB Setup & Binding Generation
 From the repository root:
@@ -366,7 +370,15 @@ npm run serve
 
 ---
 
+## Deploying the Demo
+
+[DEPLOYMENT.md](DEPLOYMENT.md) covers the images, settings and cutover for the cloud demo.
+
+---
+
 ## Running Verification Tests
+
+Voice safety rules, a 12-scenario Opus-graded text evaluation battery and a read-only inbound fallback preflight are documented in [services/VOICE_RELIABILITY.md](services/VOICE_RELIABILITY.md). The local agent configuration instructs the agent to answer unverified agency-policy questions with "I don't know"; updating an existing provider agent requires the prepared prompt patch. Run `npm run demo:preflight` from `services/` to check receiver dependencies and deployed configuration without placing a call.
 
 Run the comprehensive test suites across all project layers:
 

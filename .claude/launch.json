@@ -8,6 +8,14 @@
       "cwd": "dispatchers-portal",
       "env": { "VITE_SPACETIME_DATABASE": "hackutd-richardson" },
       "port": 3002
+    },
+    {
+      "name": "driver-demo-db",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--host", "127.0.0.1", "--port", "3003", "--strictPort"],
+      "cwd": "driver",
+      "env": { "VITE_SPACETIME_DATABASE": "hackutd-richardson" },
+      "port": 3003
     }
   ]
 }

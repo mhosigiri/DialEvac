@@ -54,7 +54,8 @@ export function contractFor(conn: DbConnection, target?: { uri: string; database
       if (!conn.isActive) throw new Error("Resident state is unavailable while disconnected");
       const home = db.household.id.find(householdId);
       if (!home) return undefined;
-      const request = db.request.householdId.find(householdId);
+      const requests = [...db.request.householdId.filter(householdId)].sort((a, b) => Number(b.createdAt.toMillis() - a.createdAt.toMillis()));
+      const request = requests.find(r => r.status !== "closed") ?? requests[0];
       const assignment = request && [...db.assignment.requestId.filter(request.id)].find(a => a.status === "accepted");
       const vehicle = assignment && db.vehicle.id.find(assignment.vehicleId);
       const callIds = new Set([...db.call.householdId.filter(householdId)].map(c => c.id));

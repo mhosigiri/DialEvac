@@ -26,6 +26,9 @@ const SWEEP_SECONDS = 30;
 export const issueWarning = spacetimedb.reducer({ hazard: t.string() }, (ctx, { hazard }) => {
   requireOperator(ctx);
   startNight(ctx, hazard);
+  const zone = ctx.db.zone.externalId.find("operator-zone");
+  if (zone?.active) ctx.db.zone.id.update({ ...zone, event: hazard, severity: "Operator warning", headline: `Operator-issued ${hazard} warning`, issuedAt: ctx.timestamp, at: ctx.timestamp });
+  sweepCoverage(ctx);
 });
 
 export function startNight(ctx: Tx, hazard: string) {
@@ -63,6 +66,8 @@ export const endNight = spacetimedb.reducer((ctx) => {
   requireOperator(ctx);
   const c = control(ctx);
   ctx.db.control.id.update({ ...c, warningAt: undefined, generation: c.generation + 1n });
+  const zone = ctx.db.zone.externalId.find("operator-zone");
+  if (zone?.active) ctx.db.zone.id.update({ ...zone, severity: "Operator defined", headline: "Operator-drawn outreach boundary; warning ended", expiresAt: ctx.timestamp });
   audit(ctx, "control", "night ended");
 });
 

@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { elevenlabs } from "../src/elevenlabs";
 import { VOICE_SCENARIOS } from "../src/voice-scenarios";
-import { evaluationOverride, gradeVoice, simulateVoice, type SimulationApi } from "../src/voice-evaluation";
+import { auditVoice, evaluationOverride, gradeVoice, simulateVoice, type SimulationApi } from "../src/voice-evaluation";
 import { VOICE_SAFETY_VERSION } from "../src/voice-safety";
 
 const { values } = parseArgs({ options: { live: { type: "boolean", default: false }, candidate: { type: "boolean", default: false }, case: { type: "string" } } });
@@ -20,7 +20,7 @@ if (!values.live) {
   const model = process.env.VOICE_EVAL_JUDGE_MODEL || "claude-opus-5-5";
   const client = elevenlabs().conversationalAi;
   const requestOptions = { timeoutInSeconds: 20, maxRetries: 0 };
-  const agent = await client.agents.get(agentId, requestOptions);
+  const agent = await client.agents.get(agentId, {}, requestOptions);
   const override = evaluationOverride(agent, values.candidate);
   const directory = new URL(`../.spacetime/voice-evals/${Date.now()}/`, import.meta.url);
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -38,15 +38,18 @@ if (!values.live) {
     startedAt: new Date().toISOString(), results: [] as Record<string, unknown>[] };
   for (const scenario of scenarios) {
     console.log(`Running ${scenario.id} (${report.mode})`);
+    let simulation: Awaited<ReturnType<typeof simulateVoice>> | undefined;
     try {
-      const simulation = await simulateVoice(api, agentId, scenario, override);
+      simulation = await simulateVoice(api, agentId, scenario, override);
       const grade = await gradeVoice(scenario, simulation.turns, { apiKey, model });
-      report.results.push({ id: scenario.id, category: scenario.category, ...simulation, ...grade });
-      console.log(`${grade.passed ? "PASS" : "FAIL"} ${scenario.id}`);
+      const auditFailures = auditVoice(scenario, simulation.turns);
+      const passed = grade.passed && auditFailures.length === 0;
+      report.results.push({ id: scenario.id, category: scenario.category, ...simulation, ...grade, auditFailures, passed });
+      console.log(`${passed ? "PASS" : "FAIL"} ${scenario.id}`);
     } catch (error) {
       // Never serialize provider error objects, which may contain request credentials.
       const message = error instanceof Error && /^(Voice simulation|Opus judge|Judge returned|No agent)/.test(error.message) ? error.message : "Provider evaluation failed; inspect the test invocation in ElevenLabs";
-      report.results.push({ id: scenario.id, category: scenario.category, passed: false, error: message });
+      report.results.push({ id: scenario.id, category: scenario.category, ...simulation, passed: false, error: message });
       console.log(`ERROR ${scenario.id}: ${message}`);
     }
     await writeFile(new URL("report.json", directory), JSON.stringify(report, null, 2), { mode: 0o600 });

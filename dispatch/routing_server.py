@@ -51,6 +51,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    host, port = os.environ.get("OSMNX_HOST", "127.0.0.1"), int(os.environ.get("OSMNX_PORT", "8800"))
+    host, port = os.environ.get("OSMNX_HOST", "127.0.0.1"), int(os.environ.get("PORT") or os.environ.get("OSMNX_PORT", "8800"))
     print(f"OSMnx routing listening on http://{host}:{port}", flush=True)
     ThreadingHTTPServer((host, port), Handler).serve_forever()

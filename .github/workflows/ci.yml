@@ -27,6 +27,7 @@ jobs:
             services/package-lock.json
             map/package-lock.json
             dispatchers-portal/package-lock.json
+            driver/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -47,11 +48,13 @@ jobs:
           npm ci --prefix services
           npm ci --prefix map
           npm ci --prefix dispatchers-portal
+          npm ci --prefix driver
       - name: Generate all client bindings before shared typechecks
         run: |
           npm run generate --prefix services
           npm run generate --prefix map
           npm run generate --prefix dispatchers-portal
+          npm run generate --prefix driver
       - name: Module tests, typecheck and build
         run: |
           npm run typecheck --prefix spacetimedb
@@ -73,8 +76,22 @@ jobs:
         run: |
           npm run build
           npm test
+      - name: Driver typecheck, tests and production build
+        working-directory: driver
+        run: |
+          npm run build
+          npm test
       - name: Solver tests
         working-directory: dispatch
         run: |
           uv sync --frozen --python 3.12
           uv run --frozen python -m pytest tests
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build every deployment image
+        run: docker compose --file deploy/compose.yml build
+      - name: Build the solver image
+        run: docker build --tag dialevac-solver dispatch

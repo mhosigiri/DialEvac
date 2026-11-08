@@ -1,5 +1,9 @@
 export type IncidentPoint = { lat: number; lng: number };
-export const validIncidentPoint = (point: IncidentPoint) => Number.isFinite(point.lat) && Number.isFinite(point.lng) && Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180;
+export const validIncidentPoint = (value: unknown): value is IncidentPoint => {
+  if (!value || typeof value !== "object") return false;
+  const point = value as IncidentPoint;
+  return Number.isFinite(point.lat) && Number.isFinite(point.lng) && Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180;
+};
 
 export function validateZone(value: unknown): [number, number][][] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 10) throw new Error("Use a polygon with 1–10 rings");

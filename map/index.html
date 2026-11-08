@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DialEvac · Live Weather</title>
 <meta name="description" content="DialEvac weather alerts and emergency response coordination on one terrain map.">
+<link rel="icon" type="image/png" href="assets/logo.png">
 <link rel="stylesheet" href="assets/vendor/maplibre-gl.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -42,7 +43,7 @@
 </head>
 <body>
 <div id="map"></div><div id="fx"></div><canvas id="rain"></canvas>
-<section class="brand glass"><div class="k">DialEvac · Richardson, TX</div><h1 id="view-title">Live Weather</h1><p id="view-subtitle">Official NWS warning boundaries on the existing terrain map.</p></section>
+<section class="brand glass"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><img src="assets/logo.png" alt="DialEvac" style="width:24px;height:24px;border-radius:6px;object-fit:contain;background:#fff;padding:1px"><div class="k">DialEvac · Richardson, TX</div></div><h1 id="view-title">Live Weather</h1><p id="view-subtitle">Official NWS warning boundaries on the existing terrain map.</p></section>
 <aside class="panel glass" aria-label="Map controls">
   <h4>Live warnings</h4>
   <div class="feed" id="feed" role="status" aria-live="polite">Connecting to live data…</div>
@@ -64,7 +65,7 @@
 </aside>
 <div class="legend glass" id="legend"></div><div class="hud glass" id="hud" hidden></div>
 <script src="assets/vendor/maplibre-gl.js"></script><script src="assets/base-style.js"></script><script src="assets/data.js"></script><script src="assets/footprints.js"></script>
-<script src="https://unpkg.com/maplibre-contour@0.1.0/dist/index.min.js"></script><script src="assets/sun.js"></script><script src="assets/flood.js"></script><script src="assets/style.js?v=1"></script>
+<script src="assets/vendor/maplibre-contour.min.js"></script><script src="assets/sun.js"></script><script src="assets/flood.js"></script><script src="assets/style.js?v=1"></script>
 <script src="assets/app.js?v=8"></script><script src="assets/hazard-flood.js"></script><script src="assets/hazard-storm.js"></script><script src="assets/richardson-simulation.js?v=3"></script><script src="assets/hazard-hurricane.js"></script>
 <script src="assets/spacetime.js"></script><script src="assets/hazard-tornado.js?v=8"></script><script src="assets/profile.js?v=2"></script>
 </body>

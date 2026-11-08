@@ -4,33 +4,37 @@
   "type": "module",
   "scripts": {
     "generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path ../spacetimedb --no-config",
-    "messaging": "tsx --env-file=../.env src/messaging.ts",
-    "voice": "tsx --env-file=../.env scripts/call-inbox.ts",
-    "voice:inbox": "tsx --env-file=../.env scripts/call-inbox.ts",
+    "messaging": "tsx --env-file-if-exists=../.env src/messaging.ts",
+    "voice": "tsx --env-file-if-exists=../.env scripts/call-inbox.ts",
+    "voice:webhook": "tsx --env-file-if-exists=../.env scripts/move-webhook.ts",
+    "voice:inbox": "tsx --env-file-if-exists=../.env scripts/call-inbox.ts",
     "typecheck": "tsc --noEmit",
-    "check:connections": "tsx --env-file=../.env scripts/check-connections.ts",
-    "check:safety": "tsx --env-file=../.env scripts/check-safety.ts",
-    "demo:prepare": "tsx --env-file=../.env scripts/prepare-houston-demo.ts",
-    "demo:call": "tsx --env-file=../.env scripts/call-houston-demo.ts",
-    "demo:outbound": "tsx --env-file=../.env scripts/outbound-demo.ts",
-    "demo:preflight": "tsx --env-file=../.env scripts/demo-preflight.ts",
-    "voice:safety": "tsx --env-file=../.env scripts/prepare-voice-safety.ts",
+    "check:connections": "tsx --env-file-if-exists=../.env scripts/check-connections.ts",
+    "check:safety": "tsx --env-file-if-exists=../.env scripts/check-safety.ts",
+    "demo:prepare": "tsx --env-file-if-exists=../.env scripts/prepare-houston-demo.ts",
+    "demo:call": "tsx --env-file-if-exists=../.env scripts/call-houston-demo.ts",
+    "demo:outbound": "tsx --env-file-if-exists=../.env scripts/outbound-demo.ts",
+    "demo:preflight": "tsx --env-file-if-exists=../.env scripts/demo-preflight.ts",
+    "voice:safety": "tsx --env-file-if-exists=../.env scripts/prepare-voice-safety.ts",
     "eval:voice": "tsx --env-file-if-exists=../.env scripts/evaluate-voice.ts",
-    "routes": "tsx --env-file=../.env scripts/route-bridge.ts",
-    "catastrophe": "tsx --env-file=../.env scripts/simulate-catastrophe.ts",
-    "demo:rehearse": "tsx --env-file=../.env scripts/rehearse-houston.ts",
-    "demo:configure": "tsx --env-file=../.env scripts/configure-demo-agent.ts",
+    "routes": "tsx --env-file-if-exists=../.env scripts/route-bridge.ts",
+    "catastrophe": "tsx --env-file-if-exists=../.env scripts/simulate-catastrophe.ts",
+    "demo:rehearse": "tsx --env-file-if-exists=../.env scripts/rehearse-houston.ts",
+    "demo:configure": "tsx --env-file-if-exists=../.env scripts/configure-demo-agent.ts",
     "test": "node --import tsx --test tests/*.test.ts",
-    "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts",
-    "demo:history": "tsx --env-file=../.env scripts/seed-historical-houston.ts"
+    "setup:elevenlabs": "tsx --env-file-if-exists=../.env scripts/elevenlabs-setup.ts",
+    "demo:history": "tsx --env-file-if-exists=../.env scripts/seed-historical-houston.ts",
+    "demo:cases": "tsx --env-file-if-exists=../.env scripts/restore-demo-cases.ts",
+    "voice:guard:prepare": "tsx --env-file-if-exists=../.env scripts/prepare-voice-guard.ts",
+    "voice:guard:configure": "tsx --env-file-if-exists=../.env scripts/configure-voice-guard.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.77.0",
-    "spacetimedb": "2.14.1"
+    "spacetimedb": "2.14.1",
+    "tsx": "^4.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
 }

@@ -17,7 +17,7 @@ const FP_FC = fc(FP);
 function grow(f, k) { const { lng, lat } = f.properties; return { ...f, geometry: { type: 'Polygon', coordinates: [f.geometry.coordinates[0].map(([x, y]) => [lng + (x - lng) * k, lat + (y - lat) * k])] } }; }
 const FP_BIG = fc(FP.map(f => grow(f, 1.12))); // slightly larger than the OSM building in the tiles, so the two don't z-fight
 
-// on-the-fly contour lines from the same DEM (maplibre-contour, BSD-3); optional if the CDN script failed
+// on-the-fly contour lines from the same DEM (maplibre-contour 0.1.0, BSD-3, vendored)
 let CONTOUR_URL = null;
 if (window.mlcontour) {
   const dem = new mlcontour.DemSource({ url: TERRARIUM_URL, encoding: 'terrarium', maxzoom: 14, worker: true, cacheSize: 120 });

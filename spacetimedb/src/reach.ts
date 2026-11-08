@@ -73,7 +73,7 @@ export const runReachStep = spacetimedb.reducer({ onSchedule: reachStep }, { tim
 // Accounts for every home in the zone and restarts the ladder for any home nobody is reaching.
 // "Reached" alone is not safe: a home that picked up and hung up without answering, or whose
 // record was edited without saying whether they can leave, is overlooked until someone asks.
-export function sweepCoverage(tx: Tx) {
+export function sweepCoverage(tx: Tx, restartUnreached = true) {
   const laddering = new Set([...tx.db.reachStep.iter()].map((s) => s.householdId));
   for (const c of tx.db.call.iter()) if (OPEN_CALL.includes(c.phase)) laddering.add(c.householdId);
   const counts = Object.fromEntries(ACCOUNTS.map((a) => [a, 0])) as Record<Account, number>;
@@ -81,7 +81,7 @@ export function sweepCoverage(tx: Tx) {
     const request = tx.db.request.householdId.find(home.id) ?? undefined;
     const account = accountFor({ canLeave: home.canLeave, reach: home.reach, request, ladderRunning: laddering.has(home.id) });
     counts[account] += 1;
-    if (account === "overlooked") {
+    if (account === "overlooked" && restartUnreached) {
       startReachLadder(tx, tx.db.household.id.update({ ...home, reach: "idle" }));
       audit(tx, "coverage", `${home.address} was not being reached: ladder restarted`);
     }

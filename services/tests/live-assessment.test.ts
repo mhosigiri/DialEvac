@@ -50,7 +50,7 @@ test("assessment HTTP endpoint persists live answers and exposes a read-only rea
   const address = server.address();
   assert(address && typeof address !== "string");
   const url = `http://127.0.0.1:${address.port}`;
-  assert.deepEqual(await (await fetch(`${url}/capabilities`)).json(), { liveAssessment: true });
+  assert.deepEqual(await (await fetch(`${url}/capabilities`)).json(), { liveAssessment: true, honestyGuard: "blocking-template-gate" });
   const send = (token?: string) => fetch(`${url}/elevenlabs/assessment`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { "x-assessment-token": token } : {}) }, body: JSON.stringify(body) });
   assert.equal((await send()).status, 401);
   assert.equal(recorded.length, 0);

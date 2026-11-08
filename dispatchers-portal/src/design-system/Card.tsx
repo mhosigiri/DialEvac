@@ -1,13 +1,14 @@
 import React from "react";
 
 interface CardProps {
+  className?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
   label?: string;
 }
 
 /** Reference card: dark surface, subtle border, restrained elevation. */
-export const Card: React.FC<CardProps> = ({ children, style, label }) => {
+export const Card: React.FC<CardProps> = ({ children, style, label, className }) => {
   // App owns layout. Bound only its sticky map variant here; the full map view keeps its own height.
   const stickyMap = label === "Live incident map" && style?.height === "calc(100vh - 300px)";
   const resolvedStyle = stickyMap
@@ -16,6 +17,7 @@ export const Card: React.FC<CardProps> = ({ children, style, label }) => {
   return (
     <section
       aria-label={label}
+      className={className}
       style={{
         background: "var(--ds-surface)",
         border: "1px solid var(--ds-border)",
