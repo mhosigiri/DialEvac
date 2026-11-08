@@ -4,6 +4,11 @@ import { SPACETIME_DATABASE, SPACETIME_URI } from "../../../shared/spacetime";
 import { CASE_FILE_WIDTH } from "./CaseFile";
 
 const MIN_ROUTE_FRAME_WIDTH = 280;
+const FRAME_BASE: React.CSSProperties = { overflow: "hidden", background: "#060607" };
+const INLINE_FRAME: React.CSSProperties = { ...FRAME_BASE, position: "relative", flex: 1, minHeight: 240, borderRadius: "12px", border: "1px solid #26262c" };
+// Below the case file (z-index 50), so a case opened from the expanded map still appears over it.
+const EXPANDED_FRAME: React.CSSProperties = { ...FRAME_BASE, position: "fixed", inset: 0, zIndex: 40 };
+const TOGGLE_FONT = "'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
 
 export interface MapSelection {
   lat: number;
@@ -25,13 +30,14 @@ interface IncidentMapFrameProps {
   route?: readonly { lat: number; lng: number }[];
   zoneGeometry?: string;
   onOpenCase?: (id: string) => void;
+  onCloseCase?: () => void;
 }
 
 function mapUrl() {
   const base =
-    import.meta.env.VITE_MAP_URL || "http://127.0.0.1:4178/index.html";
-  const uri = import.meta.env.VITE_SPACETIME_URI || SPACETIME_URI;
-  const db = import.meta.env.VITE_SPACETIME_DATABASE || SPACETIME_DATABASE;
+    import.meta.env?.VITE_MAP_URL || "http://127.0.0.1:4178/index.html";
+  const uri = import.meta.env?.VITE_SPACETIME_URI || SPACETIME_URI;
+  const db = import.meta.env?.VITE_SPACETIME_DATABASE || SPACETIME_DATABASE;
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}uri=${encodeURIComponent(uri)}&db=${encodeURIComponent(db)}`;
 }
@@ -49,6 +55,7 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
   route,
   zoneGeometry,
   onOpenCase,
+  onCloseCase,
 }) => {
   const url = mapUrl();
   const base = url.split("?")[0];
@@ -87,14 +94,42 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
   useEffect(sendCases, [sendCases, cases]);
   useEffect(sendZone, [sendZone, zoneGeometry]);
 
+  const [expanded, setExpanded] = useState(false);
+  const wasExpanded = useRef(false);
+  const expandButton = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== mapOrigin || e.source !== frame.current?.contentWindow) return;
       if (e.data?.type === "dialevac:open-case" && typeof e.data.id === "string") onOpenCase?.(e.data.id);
+      // Keys pressed after clicking the map go to the frame, so it forwards Escape here.
+      if (e.data?.type === "dialevac:escape") {
+        if (selectedRef.current) onCloseCase?.();
+        else setExpanded(false);
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [mapOrigin, onOpenCase]);
+  }, [mapOrigin, onOpenCase, onCloseCase]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    // Capture runs before the case file's own Escape listener, so one press closes only the case.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !selectedRef.current) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (wasExpanded.current === expanded) return;
+    wasExpanded.current = expanded;
+    sendRoute();
+    const target = frame.current;
+    target?.contentWindow?.postMessage({ type: "dialevac:refit", width: target.clientWidth, height: target.clientHeight }, mapOrigin);
+    if (!expanded) expandButton.current?.focus();
+  }, [expanded, mapOrigin, sendRoute]);
 
   // Selection first, so a route that is already ready frames the whole trip rather than the home alone.
   useEffect(sendSelection, [sendSelection, selected?.lat, selected?.lng, selected?.label]);
@@ -130,33 +165,27 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
         title={title}
         subtitle={subtitle}
         action={
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            ref={expandButton}
+            type="button"
+            onClick={() => setExpanded(true)}
             style={{
+              padding: 0,
+              border: 0,
+              background: "none",
+              cursor: "pointer",
+              fontFamily: TOGGLE_FONT,
               fontSize: 12,
               fontWeight: 600,
               color: "#8fb0ff",
-              textDecoration: "none",
               whiteSpace: "nowrap",
             }}
           >
-            Open full map ↗
-          </a>
+            Full screen
+          </button>
         }
       />
-      <div
-        style={{
-          position: "relative",
-          flex: 1,
-          minHeight: 240,
-          borderRadius: "12px",
-          overflow: "hidden",
-          border: "1px solid #26262c",
-          background: "#060607",
-        }}
-      >
+      <div style={expanded ? EXPANDED_FRAME : INLINE_FRAME}>
         {failed ? (
           <div
             role="alert"
@@ -215,6 +244,31 @@ export const IncidentMapFrame: React.FC<IncidentMapFrameProps> = ({
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
             allow="geolocation"
           />
+        )}
+        {expanded && (
+          <button
+            type="button"
+            autoFocus
+            onClick={() => setExpanded(false)}
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 1,
+              minHeight: "32px",
+              padding: "0 14px",
+              borderRadius: "12px",
+              background: "#1a1a1f",
+              color: "#f5f5f6",
+              border: "1px solid #2e2e36",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: TOGGLE_FONT,
+            }}
+          >
+            Exit full screen
+          </button>
         )}
       </div>
       <p style={{ fontSize: 12, color: "var(--ds-text-muted)", margin: "8px 0 0", lineHeight: 1.45 }}>

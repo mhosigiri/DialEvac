@@ -6,6 +6,7 @@
   document.documentElement.classList.add('embed');
 
   const SELECTED_ZOOM = 14.5;
+  const REFIT_WAIT_MS = 1000;
   const SEVERITY_COLOR = { critical: '#ff2d55', high: '#ff9f43', medium: '#7c9cff', low: '#8f96a3', cleared: '#3ddc97' };
   const CASES_SOURCE = 'portal-cases';
   const ROUTE_SOURCE = 'portal-route';
@@ -97,6 +98,27 @@
     map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: { top: 64, bottom: 64, left: 64, right: 64 + routeCoveredRight }, maxZoom: 15, duration: window.__dialevacState?.motion ? 900 : 0 });
   }
 
+  // The portal resized this frame, so frame the same content again at the new size.
+  function refit() {
+    const map = window.__map;
+    if (!map || !window.__dialevacState?.ready) return;
+    map.resize();
+    if (route) { framedRoute = undefined; frameRoute(map); }
+    else if (marker) map.jumpTo({ center: marker.getLngLat() });
+    else { framedKey = undefined; frameCases(map); }
+  }
+
+  // The portal measures the frame before this window has received its new size.
+  function whenFrameIs(width, height, run) {
+    const deadline = Date.now() + REFIT_WAIT_MS;
+    const check = () => {
+      const sized = Math.abs(window.innerWidth - width) <= 1 && Math.abs(window.innerHeight - height) <= 1;
+      if (sized || Date.now() >= deadline) run();
+      else setTimeout(check, 16);
+    };
+    check();
+  }
+
   function render() {
     const map = window.__map;
     if (!map || !window.__dialevacState?.ready) return;
@@ -135,7 +157,14 @@
     } else if (e.data?.type === 'dialevac:select') {
       if (e.data.selection === null) clearSelection();
       else if (validSelection(e.data.selection)) showSelection(e.data.selection);
+    } else if (e.data?.type === 'dialevac:refit' && Number.isFinite(e.data.width) && Number.isFinite(e.data.height)) {
+      whenFrameIs(e.data.width, e.data.height, refit);
     }
+  });
+
+  // After a click on the map the keyboard belongs to this frame, so the portal never sees Escape itself.
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') window.parent.postMessage({ type: 'dialevac:escape' }, '*');
   });
 
   // The portal is dark at any hour, so skip the map's sun-based light mode. This runs before app.js boots.

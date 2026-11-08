@@ -196,6 +196,7 @@ function Portal() {
       route={openRoute?.state === "ready" ? openRoute.points : undefined}
       zoneGeometry={incidentZone?.geometryJson}
       onOpenCase={openCaseFromMap}
+      onCloseCase={closeCase}
     />
   );
 
