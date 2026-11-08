@@ -1,6 +1,6 @@
 import { SenderError, t } from "spacetimedb/server";
 import { spacetimedb } from "./schema";
-import { audit, hazardAtFor, lineFor, moveRequest, queueMessage, requestStatus, syncRequest, type Household, type Tx } from "./core";
+import { audit, hazardAtFor, lineFor, liveAssignments, moveRequest, queueMessage, requestStatus, syncRequest, type Household, type Tx } from "./core";
 import { insidePolygon } from "./domain/geo";
 import { isAssistance, isMobility } from "./domain/need";
 import { ESCALATIONS } from "./domain/status";
@@ -134,6 +134,7 @@ export const escalate = spacetimedb.reducer({ householdId: t.u64(), reason: t.st
   if (!(ESCALATIONS as readonly string[]).includes(reason)) throw new SenderError(`unknown escalation ${reason}`);
   const request = ctx.db.request.householdId.find(householdId);
   if (!request) throw new SenderError("no ride request to escalate");
+  if (requestStatus(request) === "closed") throw new SenderError("request is closed");
   ctx.db.request.id.update({ ...request, escalation: reason, updatedAt: ctx.timestamp });
   audit(ctx, "escalation", `household ${householdId}: ${reason}`);
 });
@@ -174,6 +175,10 @@ export const markCallback = spacetimedb.reducer({ callbackId: t.u64(), state: t.
   if (!["placed", "played", "unanswered"].includes(state)) throw new SenderError(`unknown callback state ${state}`);
   const cb = ctx.db.callback.id.find(callbackId);
   if (!cb) throw new SenderError("no such callback");
+  if (state === "placed") {
+    const request = ctx.db.request.id.find(cb.requestId);
+    if (cb.state !== "pending" || !request || requestStatus(request) === "closed") throw new SenderError("callback changed or request is closed");
+  } else if (cb.state === "cancelled") return; // A late provider webhook cannot revive cancelled work.
   ctx.db.callback.id.update({ ...cb, state });
 });
 
@@ -303,5 +308,18 @@ export const receiveMessage = spacetimedb.reducer(
 export const closeRequest = spacetimedb.reducer({ requestId: t.u64() }, (ctx, { requestId }) => {
   const request = ctx.db.request.id.find(requestId);
   if (!request) throw new SenderError("no such request");
-  if (requestStatus(request) !== "closed") moveRequest(ctx, request, "closed");
+  // Also repair legacy closed rows whose assignments were never released. No callback announces closure.
+  for (const a of liveAssignments(ctx, requestId, ["proposed", "offered", "accepted"])) {
+    ctx.db.assignment.id.update({ ...a, status: a.status === "accepted" ? "completed" : "replaced", decidedAt: ctx.timestamp });
+  }
+  for (const cb of ctx.db.callback.requestId.filter(requestId)) {
+    if (cb.state === "pending") ctx.db.callback.id.update({ ...cb, state: "cancelled" });
+  }
+  for (const message of ctx.db.message.householdId.filter(request.householdId)) {
+    if (message.direction === "out" && message.requestStatus !== undefined && ["queued", "waiting"].includes(message.state)) {
+      ctx.db.message.id.update({ ...message, state: "superseded", error: "request closed" });
+    }
+  }
+  if (requestStatus(request) !== "closed") moveRequest(ctx, request, "closed", null, { etaMinutes: undefined });
+  else if (request.etaMinutes !== undefined) ctx.db.request.id.update({ ...request, etaMinutes: undefined, updatedAt: ctx.timestamp });
 });

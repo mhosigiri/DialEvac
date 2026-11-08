@@ -23,12 +23,16 @@ export const acceptOffer = spacetimedb.reducer({ assignmentId: t.u64() }, (ctx, 
 export const declineOffer = spacetimedb.reducer({ assignmentId: t.u64() }, (ctx, { assignmentId }) => {
   const a = ctx.db.assignment.id.find(assignmentId);
   if (!a || a.status !== "offered") throw new SenderError("changed");
+  const request = ctx.db.request.id.find(a.requestId);
+  if (!request || requestStatus(request) === "closed") throw new SenderError("request is closed or changed");
   endOpenOffer(ctx, a, "declined");
 });
 
 export const cancelByDriver = spacetimedb.reducer({ assignmentId: t.u64(), reason: t.string() }, (ctx, { assignmentId, reason }) => {
   const a = ctx.db.assignment.id.find(assignmentId);
   if (!a || a.status !== "accepted") throw new SenderError("changed");
+  const request = ctx.db.request.id.find(a.requestId);
+  if (!request || requestStatus(request) === "closed") throw new SenderError("request is closed or changed");
   revokeAccepted(ctx, a, "cancelled", reason || "driver can't make this pickup");
 });
 

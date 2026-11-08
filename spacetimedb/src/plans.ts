@@ -50,6 +50,7 @@ export function writePlan(tx: Tx, write: PlanWrite) {
     const request = tx.db.request.id.find(offer.requestId);
     const vehicle = tx.db.vehicle.id.find(offer.vehicleId);
     if (!request || !vehicle) throw new SenderError(`plan names a missing request or vehicle`);
+    if (requestStatus(request) === "closed") throw new SenderError(`request ${request.id} is closed`);
     if (!vehicleCanServe(vehicle, needsOf(request))) {
       throw new SenderError(`vehicle ${vehicle.name} can't serve request ${request.id}`);
     }
@@ -85,9 +86,10 @@ export function writePlan(tx: Tx, write: PlanWrite) {
 export function approve(tx: Tx, assignmentId: bigint) {
   const a = tx.db.assignment.id.find(assignmentId);
   if (!a || a.status !== "proposed") throw new SenderError("changed");
+  const request = tx.db.request.id.find(a.requestId);
+  if (!request || requestStatus(request) === "closed") throw new SenderError("request is closed or changed");
   setAssignment(tx, a, "offered");
   tx.db.assignment.id.update({ ...tx.db.assignment.id.find(assignmentId)!, offeredAt: tx.timestamp });
-  const request = tx.db.request.id.find(a.requestId);
   if (request && requestStatus(request) === "received") moveRequest(tx, request, "approved");
   tx.db.offerExpiry.insert({ scheduledId: 0n, scheduledAt: runAt(tx, OFFER_SECONDS), assignmentId });
 }
