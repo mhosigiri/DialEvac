@@ -18,7 +18,7 @@ The architecture comes from Standard-Response, with three changes:
 - Photon carries the text fallback and status callbacks over iMessage, through its Beta REST API.
 - An in-module procedure polls National Weather Service alerts, in place of Apify. It needs no key.
 
-The live map in `web/` subscribes to the `vehicle` table.
+`map/` is the only map. It is a MapLibre globe with real terrain that subscribes to `zone` and `vehicle` and draws NWS tornado warnings and the fleet.
 
 ## Layout
 
@@ -27,8 +27,8 @@ The live map in `web/` subscribes to the `vehicle` table.
 | `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
 | `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
-| `dispatchers-portal/` | EOC Incident Commander & Dispatcher dashboard (React + Leaflet + Tailwind): real-time SpacetimeDB subscriptions, live emergency triage feed with AI summaries, closest-capable dispatcher proximity graph matching, and call transcript viewer. |
-| `web/` | Legacy prototype map. |
+| `dispatchers-portal/` | EOC dispatcher dashboard with live Spacetime subscriptions, household triage, vehicle matching, and call transcripts. |
+| `map/` | Natroness's MapLibre globe and terrain map, live NWS tornado warnings, fleet markers, opt-in IEM radar, and isolated local demos. |
 
 ## How a night runs
 
@@ -72,7 +72,7 @@ spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM request"
 spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) FROM assignment"
 ```
 
-Local publish (for the map and services) still uses `hackutd`:
+Local publish (for the services) uses `hackutd`; the map's local scenario defaults to `hackutd-richardson`:
 
 ```bash
 spacetime publish hackutd --module-path spacetimedb --server local -y
@@ -87,11 +87,15 @@ Generate the client bindings the services and map use, then run each service:
 cd services && npm install && npm run generate
 ```
 
+Build and start the map:
+
 ```bash
-cd web && npm install && npm run generate && npm run dev
+cd map && npm install && npm run generate && npm run serve
 ```
 
-The shared project database is `hackutd-535md` on Maincloud. The services connect using `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`; `.env.example` contains the shared target. For the map, copy `web/.env.example` to `web/.env.local` before starting Vite. You can also select the shared database with `http://localhost:5173/?uri=wss://maincloud.spacetimedb.com&db=hackutd-535md`. Open two tabs: both subscribe once and key markers by `vehicle.id`. To use a local database, set the service and map environment files to `ws://127.0.0.1:3000` and `hackutd`.
+The shared project database is `hackutd-535md` on Maincloud. The services use `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`. Open the map at `http://127.0.0.1:4178/index.html`; its live connection defaults to Maincloud. Query parameters `?uri=&db=` override the live target. The separate demo connection uses `ws://127.0.0.1:3000` and `hackutd-richardson`; `?demoUri=&demoDb=` overrides that target. See the dedicated demo setup below. The legacy `web/` client has been replaced by `map/`.
+
+The dispatcher portal is independent of the public map. See `dispatchers-portal/README.md` for its setup.
 
 ```bash
 cd services && npm run messaging
@@ -136,4 +140,4 @@ The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That 
 
 - Spanish calls. The ElevenLabs agent speaks English only for now.
 - A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
-- A production map (the `web/` client is the tornado demo overlay).
+- A production operations map. `map/` shows warnings and the fleet; the HAND flood, thunderstorm and hurricane layers are illustrative.

@@ -10,6 +10,7 @@ import { accept } from "../src/offers";
 import { heartbeat, seedTornadoIncident, seedTown, startNight } from "../src/loop";
 import { TORNADO_TIMING } from "../src/domain/hazard";
 import { buildWorld, commit, solve } from "../src/dispatch";
+import { advanceAssistanceStory, DEMO_PENDING, DEMO_WHEELCHAIR, seedAssistanceStory } from "../src/demos";
 import { applyZones, parseAlerts } from "../src/feeds";
 import { upsertClosure } from "../src/roads";
 
@@ -259,19 +260,20 @@ describe("Photon replies", () => {
 });
 
 describe("the NWS feed", () => {
-  it("puts homes inside a severe alert polygon into the warning zone", () => {
+  it("records tornado polygons without putting homes in the outreach zone", () => {
     const { tx } = harness();
     tx((ctx) => insertHousehold(ctx, { riderId: "r2", name: "Bo", address: "2 Elm St", lat: ORIGIN.lat, lng: ORIGIN.lng, phone: "+12145550198", language: "en", mobility: "walks", assistance: "none", simulated: false }));
     const zones = parseAlerts({
       features: [
-        { id: "urn:alert:1", geometry: { type: "Polygon", coordinates: ZONE }, properties: { event: "Tornado Warning", severity: "Extreme", areaDesc: "Dallas, TX" } },
+        { id: "urn:alert:1", geometry: { type: "Polygon", coordinates: ZONE }, properties: { event: "Tornado Warning", severity: "Extreme", areaDesc: "Dallas, TX", status: "Actual" } },
         { id: "urn:alert:2", geometry: null, properties: { event: "Heat Advisory", severity: "Moderate", areaDesc: "Collin, TX" } },
       ],
     });
     expect(zones).toHaveLength(1);
     tx((ctx) => applyZones(ctx, zones));
     tx((ctx) => {
-      expect([...ctx.db.household.iter()][0].inZone).toBe(true);
+      expect([...ctx.db.household.iter()][0].inZone).toBe(false);
+      expect(ctx.db.request.count()).toBe(0n);
       expect(ctx.db.zone.count()).toBe(1n);
     });
     tx((ctx) => applyZones(ctx, []));
@@ -280,6 +282,18 @@ describe("the NWS feed", () => {
 });
 
 describe("stand-in seeding", () => {
+  it("keeps the public tornado map seed free of calls and dispatch work", () => {
+    const { tx } = harness();
+    tx((ctx) => seedTornadoIncident(ctx, false));
+    tx((ctx) => {
+      expect(ctx.db.call.count()).toBe(0n);
+      expect(ctx.db.message.count()).toBe(0n);
+      expect(ctx.db.request.count()).toBe(0n);
+      expect(ctx.db.assignment.count()).toBe(0n);
+      expect(control(ctx)).toMatchObject({ simulateVoice: false, simulateDispatch: false, simulateDrivers: false, autoApprove: false });
+    });
+  });
+
   it("does not duplicate the simulated fleet on a second seed", () => {
     const { tx } = harness();
     tx((ctx) => seedTown(ctx, 3));
@@ -301,6 +315,34 @@ describe("stand-in seeding", () => {
       expect([...ctx.db.request.iter()].filter((r) => r.mobility === "wheelchair")).toHaveLength(1);
       expect([...ctx.db.zone.iter()].filter((z) => z.externalId === "sim-tornado")).toHaveLength(1);
       expect(control(ctx).hazard).toBe("tornado");
+    });
+  });
+});
+
+describe("hurricane aftermath demo", () => {
+  it("confirms the wheelchair ride only after dispatcher approval and simulated driver acceptance", () => {
+    const { tx } = harness();
+    tx(seedAssistanceStory);
+    tx((ctx) => {
+      const home = ctx.db.household.riderId.find(DEMO_WHEELCHAIR)!;
+      const pending = ctx.db.household.riderId.find(DEMO_PENDING)!;
+      const request = ctx.db.request.householdId.find(home.id)!;
+      const assignment = [...ctx.db.assignment.requestId.filter(request.id)][0];
+      expect(assignment.status).toBe("proposed");
+      expect(ctx.db.callback.count()).toBe(0n);
+      expect(pending.reach).toBe("door_check");
+      expect([...ctx.db.call.householdId.filter(pending.id)][0].outcome).toBe("no_answer");
+      advanceAssistanceStory(ctx, "approve");
+      expect(ctx.db.assignment.id.find(assignment.id)!.status).toBe("offered");
+      expect(ctx.db.callback.count()).toBe(0n);
+    });
+    tx((ctx) => advanceAssistanceStory(ctx, "accept"));
+    tx((ctx) => {
+      const home = ctx.db.household.riderId.find(DEMO_WHEELCHAIR)!;
+      const request = ctx.db.request.householdId.find(home.id)!;
+      expect(request.status).toBe("driver_accepted");
+      expect([...ctx.db.callback.iter()]).toHaveLength(1);
+      expect([...ctx.db.callback.iter()][0].line).toContain("wheelchair-accessible van");
     });
   });
 });

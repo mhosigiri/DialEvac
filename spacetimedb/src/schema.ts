@@ -219,6 +219,29 @@ const zone = table(
     rings: t.string(),
     active: t.bool().index("btree"),
     at: t.timestamp(),
+    headline: t.option(t.string()).default(undefined),
+    issuedAt: t.option(t.timestamp()).default(undefined),
+    expiresAt: t.option(t.timestamp()).default(undefined),
+    url: t.option(t.string()).default(undefined),
+    messageType: t.option(t.string()).default(undefined),
+    kind: t.option(t.string()).default(undefined),
+    geometryJson: t.option(t.string()).default(undefined),
+    area: t.option(t.string()).default(undefined),
+  },
+);
+
+const feedHealth = table(
+  { name: "feed_health", public: true },
+  {
+    id: t.u32().primaryKey(),
+    provider: t.string(),
+    area: t.string(),
+    stale: t.bool(),
+    lastOkAt: t.option(t.timestamp()),
+    lastAttemptAt: t.option(t.timestamp()),
+    error: t.option(t.string()),
+    warningCount: t.u32(),
+    radarValidAt: t.option(t.string()),
   },
 );
 
@@ -302,6 +325,7 @@ export const spacetimedb = schema(
     callback,
     roadClosure,
     zone,
+    feedHealth,
     auditLog,
     dispatchState,
     coverage,

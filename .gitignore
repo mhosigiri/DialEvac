@@ -12,3 +12,7 @@ web/src/module_bindings/
 __pycache__/
 .pytest_cache/
 .spacetime/
+
+reference_images/
+
+**/src/module_bindings/

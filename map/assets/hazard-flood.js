@@ -9,7 +9,7 @@
   const expr = (L, c) => ['interpolate', ['linear'], ['elevation'], -1, c.deep, Math.max(L - 0.7, -0.5), c.mid, L, c.shore, L + 0.22, c.clear, 100, c.clear];
   let mode = 'night', lastL = null, lastF = null;
   HAZARDS.push({
-    id: 'flood', label: 'Creek flood', note: 'HAND model', defaultOn: true,
+    id: 'flood', label: 'Creek flood', note: 'HAND model', defaultOn: false,
     addTo(s, m, P) {
       mode = m; lastL = lastF = null;
       s.sources.flood = { type: 'raster-dem', tiles: [base + 'tiles/flood/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, minzoom: 12, maxzoom: 14, bounds: FLOOD_BOUNDS,
