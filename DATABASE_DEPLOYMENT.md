@@ -29,7 +29,10 @@ Spacetime rejects removing existing columns or nonempty tables during automatic 
    (cd spacetimedb && npm run typecheck && npm test)
    (cd map && npm run generate && npm run build && npm test && npx tsc --noEmit)
    (cd dispatchers-portal && npm run generate && npm run build)
+   (cd dispatch && uv sync --frozen --python 3.12 && uv run --frozen python -m pytest tests)
    ```
+
+   `.github/workflows/ci.yml` runs the four test suites (module, services/portal case rules, map, Python solver), every listed typecheck/build and all three client binding generators. It pins the Spacetime CLI to 2.14.1 and performs no database publication, provider calls or live connector write checks.
 
 ## Publishing
 

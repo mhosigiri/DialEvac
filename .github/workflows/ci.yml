@@ -1,0 +1,79 @@
+name: Verify
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            spacetimedb/package-lock.json
+            services/package-lock.json
+            map/package-lock.json
+            dispatchers-portal/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: dispatch/uv.lock
+      - name: Install pinned Spacetime CLI
+        run: |
+          curl -fsSL https://install.spacetimedb.com -o "$RUNNER_TEMP/install-spacetime.sh"
+          sh "$RUNNER_TEMP/install-spacetime.sh" --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/spacetime" version install 2.14.1 --use --yes
+          "$HOME/.local/bin/spacetime" --version
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci --prefix spacetimedb
+          npm ci --prefix services
+          npm ci --prefix map
+          npm ci --prefix dispatchers-portal
+      - name: Generate all client bindings before shared typechecks
+        run: |
+          npm run generate --prefix services
+          npm run generate --prefix map
+          npm run generate --prefix dispatchers-portal
+      - name: Module tests, typecheck and build
+        run: |
+          npm run typecheck --prefix spacetimedb
+          npm test --prefix spacetimedb
+          spacetime build --module-path spacetimedb
+      - name: Service typecheck and tests (includes portal case rules)
+        working-directory: services
+        run: |
+          npm run typecheck
+          npm test
+      - name: Map build, tests and typecheck
+        working-directory: map
+        run: |
+          npm run build
+          npm test
+          npx tsc --noEmit
+      - name: Portal typecheck and production build
+        working-directory: dispatchers-portal
+        run: |
+          npm run build
+      - name: Solver tests
+        working-directory: dispatch
+        run: |
+          uv sync --frozen --python 3.12
+          uv run --frozen python -m pytest tests
