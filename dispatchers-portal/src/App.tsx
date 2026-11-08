@@ -7,6 +7,7 @@ import { EmergencyFeed } from "./components/EmergencyFeed";
 import { DispatcherUnitsPanel } from "./components/DispatcherUnitsPanel";
 import { TranscriptDrawer } from "./components/TranscriptDrawer";
 import type { Household, Call, Request, Vehicle } from "./module_bindings/types";
+import { transcriptsForHousehold } from "./lib/data";
 
 export function App() {
   const connectionState = useSpacetimeDB();
@@ -180,7 +181,7 @@ export function App() {
           household={transcriptTarget.household}
           call={transcriptTarget.call}
           request={transcriptTarget.request}
-          transcripts={transcripts}
+          transcripts={transcriptsForHousehold(transcripts, calls, transcriptTarget.household?.id)}
           onClose={handleCloseTranscript}
         />
       )}

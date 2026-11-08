@@ -4,9 +4,10 @@ import { SpacetimeDBProvider } from "spacetimedb/react";
 import { DbConnection } from "./module_bindings";
 import App from "./App";
 import "./index.css";
+import { SPACETIME_DATABASE, SPACETIME_URI } from "../../shared/spacetime";
 
-const uri = import.meta.env.VITE_SPACETIME_URI || "wss://maincloud.spacetimedb.com";
-const database = import.meta.env.VITE_SPACETIME_DATABASE || "hackutd-535md";
+const uri = import.meta.env.VITE_SPACETIME_URI || SPACETIME_URI;
+const database = import.meta.env.VITE_SPACETIME_DATABASE || SPACETIME_DATABASE;
 
 const connectionBuilder = DbConnection.builder()
   .withUri(uri)

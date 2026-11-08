@@ -1,14 +1,15 @@
 import { DbConnection } from "./module_bindings";
+import { SPACETIME_DATABASE, SPACETIME_DEMO_DATABASE, SPACETIME_URI, separateDemoDatabase } from "../../shared/spacetime";
 import type { Assignment, Callback, FeedHealth, Household, Request, RoadClosure, Shelter, Vehicle, Zone } from "./module_bindings/types";
 
 export type ConnState = "connecting" | "connected" | "error";
 type Listener = () => void;
 
 const params = new URLSearchParams(location.search);
-export const uri = params.get("uri") || "wss://maincloud.spacetimedb.com";
-export const database = params.get("db") || "hackutd-535md";
-export const demoUri = params.get("demoUri") || "ws://127.0.0.1:3000";
-export const demoDatabase = params.get("demoDb") || "hackutd-richardson";
+export const uri = params.get("uri") || SPACETIME_URI;
+export const database = params.get("db") || SPACETIME_DATABASE;
+export const demoUri = params.get("demoUri") || SPACETIME_URI;
+export const demoDatabase = params.get("demoDb") || SPACETIME_DEMO_DATABASE;
 
 const liveZones = new Map<string, Zone>();
 const liveVehicles = new Map<string, Vehicle>();
@@ -45,9 +46,8 @@ export function listenerCounts() { return { geometry: geometryListeners.size, st
 
 export function snapshot() { return { state: liveState, error: liveError, uri, database, zones: liveZones, vehicles: liveVehicles, assignments: liveAssignments, health }; }
 export function demoSnapshot() { return { state: demoState, error: demoError, uri: demoUri, database: demoDatabase, households, requests, assignments, vehicles, shelters, callbacks, roads }; }
-export function isLocalDemo() {
-  try { return ["127.0.0.1", "localhost"].includes(new URL(demoUri.replace(/^ws/i, "http")).hostname); }
-  catch { return false; }
+export function isSeparateDemo() {
+  return separateDemoDatabase(demoUri, demoDatabase, uri, database);
 }
 
 const microsToMs = (value: Zone["expiresAt"] | Zone["issuedAt"] | FeedHealth["lastOkAt"] | undefined) => {
@@ -111,10 +111,10 @@ export function vehicleCollection() {
   return { type: "FeatureCollection" as const, features };
 }
 export function demoStatusLine() {
-  if (demoState === "connecting") return `local demo connecting · ${demoDatabase}`;
-  if (demoState === "error") return `local demo unavailable · ${demoError || "connection failed"}`;
-  if (demoError) return `local demo failed · ${demoError}`;
-  return `local demo connected · ${demoDatabase}`;
+  if (demoState === "connecting") return `demo connecting · ${demoDatabase}`;
+  if (demoState === "error") return `demo unavailable · ${demoError || "connection failed"}`;
+  if (demoError) return `demo failed · ${demoError}`;
+  return `demo connected · ${demoDatabase}`;
 }
 export function radarLine() { return health?.radarValidAt ? `IEM N0Q · ${health.radarValidAt}` : "IEM N0Q · latest composite"; }
 
@@ -145,7 +145,7 @@ export function warningCollection() {
 }
 
 async function runDemoReducer(run: (connection: DbConnection) => Promise<unknown>) {
-  if (!demoConnection || demoState !== "connected" || !isLocalDemo()) return false;
+  if (!demoConnection || demoState !== "connected" || !isSeparateDemo()) return false;
   try {
     await run(demoConnection);
     demoError = undefined; notify(statusListeners);
@@ -197,6 +197,11 @@ function connectLive() {
 
 function connectDemo() {
   if (demoConnection) return;
+  if (!isSeparateDemo()) {
+    demoState = "error"; demoError = "Select a dedicated demo database, separate from the operational database";
+    notify(demoListeners); notify(statusListeners);
+    return;
+  }
   demoConnection = DbConnection.builder().withUri(demoUri).withDatabaseName(demoDatabase)
     .onConnect(conn => {
       demoState = "connected"; demoError = undefined; notify(demoListeners); notify(statusListeners);

@@ -5,7 +5,7 @@ import type { CallbackRow, CallRow, Contract, MessageRow } from "./contract";
 // The one file that touches the generated bindings (`npm run generate` writes ./module_bindings
 // from the module). Everything else goes through Contract.
 
-const QUERIES = [
+export const SERVICE_QUERIES = [
   "SELECT * FROM household",
   "SELECT * FROM message WHERE state = 'queued'",
   "SELECT * FROM call WHERE phase != 'ended'",
@@ -23,7 +23,7 @@ export function connect(): Promise<Contract> {
           .subscriptionBuilder()
           .onApplied(() => resolve(contractFor(conn)))
           .onError((ctx) => reject(ctx.event ?? new Error("subscription failed")))
-          .subscribe(QUERIES);
+          .subscribe(SERVICE_QUERIES);
       })
       .onConnectError((_ctx, error) => reject(error))
       // A dropped connection leaves the runners deaf and every reducer call hanging, so stop loudly
@@ -36,7 +36,7 @@ export function connect(): Promise<Contract> {
   });
 }
 
-function contractFor(conn: DbConnection): Contract {
+export function contractFor(conn: DbConnection): Contract {
   const db = conn.db;
   const r = conn.reducers;
   return {

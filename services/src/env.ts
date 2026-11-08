@@ -1,4 +1,5 @@
 // Every setting the services read. Secrets come from the repo's .env (see .env.example), never git.
+import { SPACETIME_DATABASE, SPACETIME_URI } from "../../shared/spacetime";
 
 function required(name: string) {
   const value = process.env[name];
@@ -16,8 +17,8 @@ const listFrom = (name: string) =>
 
 export const env = {
   spacetime: {
-    uri: () => optional("SPACETIME_URI", "ws://127.0.0.1:3000"),
-    database: () => required("SPACETIME_DATABASE"),
+    uri: () => optional("SPACETIME_URI", SPACETIME_URI),
+    database: () => optional("SPACETIME_DATABASE", SPACETIME_DATABASE),
     token: () => process.env.SPACETIME_TOKEN || undefined,
   },
   photon: {

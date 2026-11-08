@@ -7,7 +7,7 @@ The shared database is `hackutd-535md` on Maincloud. Treat its deployed schema a
 - Preserve all 23 deployed tables, their ordered columns/types, defaults, indexes, unique constraints, sequences, schedules, and public/private access.
 - In particular, retain `feed_health`, the eight appended optional `zone` fields, and the `zone.source` index. Older versions of `main` omit these and cannot be republished over the deployed database.
 - Add `inbound_call_ended` and `message_waiting` for the local services, while keeping existing reducer names and argument signatures.
-- Keep `DEMO_MODE` unset on Maincloud. The optional setting is only enabled as `isolated` for a dedicated demo database. Public demo reducers reject missing opt-in, real households/vehicles, and active incidents.
+- Keep `DEMO_MODE` unset on the operational Maincloud database `hackutd-535md`. The optional setting is only enabled as `isolated` for the separate Maincloud demo database `hackutd-richardson`. Public demo reducers reject missing opt-in, real households/vehicles, and active incidents.
 - Preserve stored module environment values. Do not load service `.env` into the publish process or use `--replace-env`.
 
 Spacetime rejects removing existing columns or nonempty tables during automatic migration. Appended columns need defaults. See the [current migration rules](https://spacetimedb.com/docs/databases/automatic-migrations/).
@@ -42,6 +42,6 @@ If the server reports a migration conflict or insufficient permission, stop and 
 
 After publishing, verify the live schema, the service reducers, and the client subscriptions. A successful WebSocket handshake alone does not prove the reducers used by a service are deployed. The public map's live connection is read-only; operators start the feed separately with `startFeeds`. Live NWS warning ingestion remains display-only. An outreach workflow explicitly sets its area with `setZone` and starts an incident with `issueWarning`.
 
-## Local demo
+## Remote demo
 
-The map's demo database is `hackutd-richardson` on `http://127.0.0.1:3000`, published with `DEMO_MODE=isolated`. It is separate from local `hackutd` and shared Maincloud. The root README documents its separate CLI identity and setup. Never use the shared database as the demo target.
+The map's demo database is `hackutd-richardson` on Maincloud, published with `DEMO_MODE=isolated`. It is separate from the operational Maincloud database `hackutd-535md`, where demos remain disabled. Both default targets are declared in `shared/spacetime.ts`. The root README documents remote demo deployment and the read-only / synthetic write connector checks. Never use the operational database as the demo target.

@@ -28,7 +28,7 @@ The architecture comes from Standard-Response, with three changes:
 | `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
 | `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
 | `dispatchers-portal/` | EOC dispatcher dashboard with live Spacetime subscriptions, household triage, vehicle matching, and call transcripts. |
-| `map/` | Natroness's MapLibre globe and terrain map, live NWS tornado warnings, fleet markers, opt-in IEM radar, and isolated local demos. |
+| `map/` | Natroness's MapLibre globe and terrain map, live NWS tornado warnings, fleet markers, opt-in IEM radar, and isolated remote demos. |
 
 ## How a night runs
 
@@ -55,10 +55,6 @@ cd spacetimedb && npm install && npm test
 ```
 
 ```bash
-spacetime start
-```
-
-```bash
 spacetime login
 spacetime publish hackutd-535md --module-path spacetimedb --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
 ```
@@ -72,11 +68,7 @@ spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM re
 spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM assignment"
 ```
 
-Local publish (for the services) uses `hackutd`; the map's local scenario defaults to `hackutd-richardson`:
-
-```bash
-spacetime publish hackutd --module-path spacetimedb --server local --delete-data=never --no-config
-```
+All application database connections default to Maincloud. Shared browser-safe targets are declared once in `shared/spacetime.ts`; the services and portal can override them through their environment files, and the map accepts explicit query parameters.
 
 The module's own settings (`SOLVER_URL`, `SOLVER_TOKEN`, `FEED_AREA`, `DEMO_MODE`) are declared in `spacetimedb/src/schema.ts` and installed at publish time, not read from `.env`. `spacetime publish --help` lists how to pass them. Leaving the solver settings out uses the built-in heuristic. The feed begins only when an operator calls `startFeeds`; its default area is TX. `DEMO_MODE` stays unset on the shared database.
 
@@ -92,25 +84,39 @@ Build and start the map:
 cd map && npm install && npm run generate && npm run serve
 ```
 
-The shared project database is `hackutd-535md` on Maincloud. The services use `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`. Open the map at `http://127.0.0.1:4178/index.html`; its live connection defaults to Maincloud. Query parameters `?uri=&db=` override the live target. The separate demo connection uses `ws://127.0.0.1:3000` and `hackutd-richardson`; `?demoUri=&demoDb=` overrides that target. See the dedicated demo setup below. The legacy `web/` client has been replaced by `map/`.
+The shared project database is `hackutd-535md` on Maincloud. The services use `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`. Open the map at `http://127.0.0.1:4178/index.html`; its live connection defaults to Maincloud. Query parameters `?uri=&db=` override the live target. The separate demo connection also uses Maincloud, targeting `hackutd-richardson`; `?demoUri=&demoDb=` overrides that target. See the dedicated demo setup below. The legacy `web/` client has been replaced by `map/`.
 
 The dispatcher portal is independent of the public map. See `dispatchers-portal/README.md` for its setup.
 
 ### Dedicated demo database
 
-Public fixture operations are disabled unless the published module has `DEMO_MODE=isolated`. They also reject databases with real households, real vehicles, or an active incident. Keep that setting unset on Maincloud and on the services' operational database. Each assistance run resets only its own fixture records before replaying approval and acceptance.
+Public fixture operations are disabled unless the published module has `DEMO_MODE=isolated`. They also reject databases with real households, real vehicles, or an active incident. Keep that setting unset on the shared operational database `hackutd-535md`. Enable it only on the separate Maincloud demo database `hackutd-richardson`. Each assistance run resets only its own fixture records before replaying approval and acceptance.
 
-A separate local CLI configuration avoids replacing a saved Maincloud login. From the repository root, with the local server running:
+The isolated remote demo database is already provisioned. To update its module from the repository root:
 
 ```bash
-mkdir -p .spacetime
-spacetime --config-path .spacetime/local-cli.toml login --server-issued-login http://127.0.0.1:3000 --no-browser
-DEMO_MODE=isolated spacetime --config-path .spacetime/local-cli.toml publish hackutd-richardson --module-path spacetimedb --server http://127.0.0.1:3000 --delete-data=never --no-config
+DEMO_MODE=isolated spacetime publish hackutd-richardson --module-path spacetimedb --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
 ```
 
-The local identity file is gitignored. The map reads Maincloud while its two Run Demo choices use this separate database. It awaits successful database operations before starting playback and reports failed operations in the demo status. Opening the map never starts the live feed or writes to Maincloud.
+The map reads `hackutd-535md` while its two Run Demo choices use the separate `hackutd-richardson` database. Both connections use Maincloud; no local Spacetime server is required. It awaits successful database operations before starting playback and reports failed operations in the demo status. Opening the map never starts the live feed or writes to Maincloud.
 
 Before updating the shared database, follow [DATABASE_DEPLOYMENT.md](DATABASE_DEPLOYMENT.md).
+
+### Verify database connectors
+
+After generating bindings, run the read-only connection check:
+
+```bash
+cd services && npm run check:connections
+```
+
+It checks the actual service queue filters and every table used by the operational portal, live map, and remote demo. To additionally exercise message delivery states, inbound-call records, household/request updates, transcripts, and callbacks on synthetic demo data:
+
+```bash
+cd services && npm run check:connections -- --write-demo
+```
+
+The write check resets the dedicated demo fixture; it never writes to the operational database or starts telephony. Transcript display joins `transcript_line.call_id` through `call.household_id` so one household cannot show another household's conversation.
 
 ```bash
 cd services && npm run messaging

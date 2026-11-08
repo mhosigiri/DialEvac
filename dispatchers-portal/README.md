@@ -37,6 +37,7 @@ Real-time Incident Commander & Dispatcher dashboard connected directly to **Spac
 
 ```bash
 cd dispatchers-portal
+cp .env.example .env
 npm install
 npm run generate
 npm run dev
@@ -44,3 +45,5 @@ npm run dev
 
 Server runs on: **`http://localhost:3001`**
 Connected to SpacetimeDB: **`wss://maincloud.spacetimedb.com`** (Database: `hackutd-535md`).
+
+The default URI and database are shared with the services and public map through `shared/spacetime.ts`. `VITE_SPACETIME_URI` and `VITE_SPACETIME_DATABASE` in `.env` can override them. Household transcripts are joined through the household's call IDs. Run `cd services && npm run check:connections` from the repository root to verify all application table subscriptions.
