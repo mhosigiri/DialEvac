@@ -2,7 +2,7 @@
 // MapLibre animation loop supplies timestamps so Reset cannot leave work behind.
 'use strict';
 (() => {
-  const LABEL = 'Simulated · Richardson, TX';
+  const LABEL = 'Richardson, TX';
   const CENTER = [-96.758, 32.977];
   const DURATION_MS = 12000;
   const TRACK = [

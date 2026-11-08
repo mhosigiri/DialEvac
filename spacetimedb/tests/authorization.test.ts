@@ -7,11 +7,11 @@ import { seedAssistanceStory } from "../src/demos";
 import { control } from "../src/core";
 
 type Context = Parameters<typeof moduleExports.closeRequest>[0];
-type Grants = { OPERATOR_IDENTITIES?: string; SERVICE_IDENTITIES?: string; DEMO_MODE?: string };
+type Grants = { OPERATOR_IDENTITIES?: string; SERVICE_IDENTITIES?: string; DEMO_MODE?: string; DEMO_PUBLIC_DISPATCH?: string };
 function environment(ctx: Context, grants: Grants): Context {
   return new Proxy(ctx, { get: (target, key) => key === "env" ? grants : Reflect.get(target, key, target) });
 }
-const operatorActions = ["proposePlan", "approveOffer", "acceptOffer", "declineOffer", "cancelByDriver", "importRiders", "setZone", "escalate", "closeRequest", "closeRoad", "reopenRoad", "issueWarning", "setStandIns", "setHazardOrigin", "endNight", "startFeeds", "notifyResident", "requestDispatchRoute", "retryCallAnalysis", "prepareHoustonDemo", "simulateCatastrophe", "simulateAssessment", "matchClosestDispatcher", "simulateFollowUp", "simulateResidentDelivery"] as const;
+const operatorActions = ["proposePlan", "approveOffer", "acceptOffer", "declineOffer", "cancelByDriver", "importRiders", "setZone", "escalate", "closeRequest", "closeRoad", "reopenRoad", "issueWarning", "setStandIns", "setHazardOrigin", "endNight", "startFeeds", "notifyResident", "requestDispatchRoute", "retryCallAnalysis", "seedHistoricalHoustonDemo", "prepareHoustonDemo", "simulateCatastrophe", "simulateAssessment", "matchClosestDispatcher", "simulateFollowUp", "simulateResidentDelivery", "normalizeFixtureLabels"] as const;
 const serviceActions = ["claimCall", "callAnswered", "callEnded", "addTranscriptLine", "markCallback", "recordDigit", "inboundCallEnded", "claimMessage", "messageSent", "messageFailed", "messageWaiting", "receiveMessage", "recordCallTranscript", "recordCallAssessment", "reportCallHandoff", "recordDispatchRoute", "recordProviderCall", "claimCallAnalysis", "finishCallAnalysis", "startDemoOutboundAttempt", "recordRouteGuidance"] as const;
 const schedules = ["expireOffer", "runReachStep", "tick", "expireDispatchRoute"] as const;
 
@@ -62,6 +62,23 @@ describe("reducer role boundaries", () => {
     const { call, op, grants, h } = fixture();
     call(op, "startFeeds", {}, { OPERATOR_IDENTITIES: ` , 0x${grants.OPERATOR_IDENTITIES.toUpperCase()}, ` });
     expect(h.db.feedPoll.count()).toBe(1n);
+  });
+
+  it("allows fresh browser identities to dispatch only with explicit isolated-demo opt-in", () => {
+    const { h, stranger, service, call } = fixture();
+    h.withReducerTx(TestAuth.internal(), seedAssistanceStory);
+    const home = [...h.db.household.iter()][0];
+    const settings = { DEMO_MODE: "isolated", DEMO_PUBLIC_DISPATCH: "true" };
+    const args = { householdId: home.id, source: "browser-demo", patch: { canLeave: undefined, people: 3, mobility: undefined, assistance: undefined, oxygen: undefined } };
+    call(stranger, "updateRecord", args, settings);
+    call(service, "updateRecord", args, settings);
+    expect(h.db.household.id.find(home.id)?.people).toBe(3);
+    expect(() => call(stranger, "claimCall", {}, settings)).toThrow(/Not authorized/);
+    for (const env of [{ DEMO_PUBLIC_DISPATCH: "true" }, { DEMO_MODE: "operational", DEMO_PUBLIC_DISPATCH: "true" }, { DEMO_MODE: "isolated", DEMO_PUBLIC_DISPATCH: "false" }]) {
+      expect(() => call(stranger, "updateRecord", args, env)).toThrow(/Not authorized/);
+    }
+    h.withReducerTx(TestAuth.internal(), ctx => ctx.db.household.id.update({ ...ctx.db.household.id.find(home.id)!, simulated: false }));
+    expect(() => call(stranger, "updateRecord", args, settings)).toThrow(/Not authorized/);
   });
 
   it("allows service writes and shared record updates, then immediately respects revocation", () => {

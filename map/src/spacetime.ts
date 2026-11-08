@@ -106,15 +106,15 @@ export function vehicleCollection() {
   const label = { available: "Available", assigned: "Assigned", en_route: "En route" };
   const features = [...liveVehicles.values()].map(v => {
     const status = vehicleStatus(v.id);
-    return { type: "Feature", properties: { id: key(v.id), status, simulated: v.simulated, label: `${v.name} · ${label[status]}${v.simulated ? " · SIM" : ""}` }, geometry: { type: "Point", coordinates: [v.lng, v.lat] } };
+    return { type: "Feature", properties: { id: key(v.id), status, simulated: v.simulated, label: `${v.name} · ${label[status]}` }, geometry: { type: "Point", coordinates: [v.lng, v.lat] } };
   });
   return { type: "FeatureCollection" as const, features };
 }
 export function demoStatusLine() {
-  if (demoState === "connecting") return `demo connecting · ${demoDatabase}`;
-  if (demoState === "error") return `demo unavailable · ${demoError || "connection failed"}`;
-  if (demoError) return `demo failed · ${demoError}`;
-  return `demo connected · ${demoDatabase}`;
+  if (demoState === "connecting") return "Response data connecting";
+  if (demoState === "error") return `Response data unavailable · ${demoError || "connection failed"}`;
+  if (demoError) return `Response data failed · ${demoError}`;
+  return "Response data connected";
 }
 export function radarLine() { return health?.radarValidAt ? `IEM N0Q · ${health.radarValidAt}` : "IEM N0Q · latest composite"; }
 

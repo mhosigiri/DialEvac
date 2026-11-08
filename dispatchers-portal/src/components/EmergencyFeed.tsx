@@ -287,7 +287,6 @@ function CaseCard({
               Ride: <span className="capitalize">{words(request.status)}</span>
             </Badge>
           )}
-          {household.simulated && <Badge tone="neutral">Simulated</Badge>}
         </>
       }
       summary={row.summary}

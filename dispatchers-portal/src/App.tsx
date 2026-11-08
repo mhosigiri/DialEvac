@@ -17,6 +17,7 @@ import { failureMessage, isNotAuthorized, type Command } from "./commands";
 import { ALL_CASES, CRITICAL_CASES, casesCsv, downloadCsv, isCleared, loadMyCases, matchesQuery, queueFilters, saveMyCases, type QueueScope } from "./queue";
 import type { CaseRow } from "./lib/cases";
 import { routeMatchesLocations } from "../../shared/route-guidance";
+import { IncidentConsole } from "./incident/IncidentConsole";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -264,9 +265,12 @@ function Portal() {
           query={query}
           onQueryChange={setQuery}
           onShowCritical={() => {
+            setView("queue");
             setFeedTab("critical");
+            setQuery("");
             showQueueFilter(CRITICAL_CASES);
           }}
+          onOpenCase={setOpenCaseId}
           activeTab={feedTab}
           onTabChange={setFeedTab}
           onAssignNext={handleAssignNext}
@@ -276,6 +280,7 @@ function Portal() {
         />
 
         <main className="flex-1 px-6 pb-8" style={{ minHeight: 0 }}>
+          {view === "incident" && <IncidentConsole onError={error => { if (isNotAuthorized(error)) setNotAuthorized(true); else setFailure(failureMessage(error)); }} />}
           {view === "calls" && <CallInbox records={callRecords} analyses={callAnalyses} households={households} onOpenCase={setOpenCaseId} disabled={!connected}
             onRetry={providerId => { void retryCallAnalysis({ providerId }).catch(error => { if (isNotAuthorized(error)) setNotAuthorized(true); else setFailure(failureMessage(error)); }); }} />}
           {view === "operations" && (
@@ -330,6 +335,7 @@ function Portal() {
         <CaseFile
           row={openCase}
           zone={incidentZone}
+          vehicles={vehicles}
           calls={calls}
           messages={messages}
           corrections={corrections}

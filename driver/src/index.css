@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --ds-bg: #060607;
+  --ds-surface: #131316;
+  --ds-surface-raised: #1a1a1f;
+  --ds-surface-inset: #0e0e11;
+  --ds-border: #26262c;
+  --ds-border-strong: #33333a;
+  --ds-text: #f5f5f6;
+  --ds-text-secondary: #c2c2c9;
+  --ds-text-muted: #a3a3aa;
+  --ds-accent: #8fb0ff;
+  --ds-accent-hover: #a8c4ff;
+  --ds-success: #3dd68c;
+  --ds-warning: #e8b84b;
+  --ds-danger: #f87171;
+  --ds-radius-control: 12px;
+  --ds-radius-card: 16px;
+  --ds-radius-panel: 20px;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+html {
+  background: var(--ds-bg);
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--ds-bg);
+  color: var(--ds-text);
+  min-height: 100%;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(143 176 255 / 60%);
+}
+
+/* Shimmer */
+@keyframes ds-skeleton-shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+
+.ds-skeleton-line {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0px,
+    rgba(255, 255, 255, 0.1) 40px,
+    rgba(255, 255, 255, 0.04) 80px
+  );
+  background-size: 400px 100%;
+  animation: ds-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Pulsing radar for live incoming offers */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(232, 184, 75, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 16px rgba(232, 184, 75, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(232, 184, 75, 0);
+  }
+}
+
+.pulse-emergency {
+  animation: pulse-ring 2s infinite cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+/* Hide scrollbars but keep scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

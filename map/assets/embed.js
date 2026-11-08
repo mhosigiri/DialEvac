@@ -1,9 +1,10 @@
-// Operator portal mode (?embed=1). The portal owns the controls and the case data, so the frame shows
-// only the map and the resident the dispatcher selected. Without the flag this file does nothing.
+// Operator portal mode (?embed=1). The portal owns case data and selection; the embedded map
+// retains its own display and layer controls. Without the flag this file does nothing.
 'use strict';
 (() => {
   if (!new URLSearchParams(location.search).has('embed')) return;
   document.documentElement.classList.add('embed');
+  if (new URLSearchParams(location.search).get('directions') === '1') document.documentElement.classList.add('directions-mode');
 
   const SELECTED_ZOOM = 14.5;
   const REFIT_WAIT_MS = 1000;
@@ -19,6 +20,7 @@
   let route = null;
   let framedRoute;
   let routeCoveredRight = 0;
+  let routeCoveredBottom = 0;
   let selection = null;
   let responder = null;
   let responderMarker;
@@ -115,7 +117,7 @@
     framedRoute = key;
     const all = [...route, ...(responder ? [responder] : []), ...(selection ? [selection] : [])];
     const lats = all.map(p => p.lat), lngs = all.map(p => p.lng);
-    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: { top: 64, bottom: 64, left: 64, right: 64 + routeCoveredRight }, maxZoom: 15, duration: window.__dialevacState?.motion ? 900 : 0 });
+    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: { top: 64, bottom: 64 + routeCoveredBottom, left: 64, right: 64 + routeCoveredRight }, maxZoom: 15, duration: window.__dialevacState?.motion ? 900 : 0 });
   }
 
   // The portal resized this frame, so frame the same content again at the new size.
@@ -171,15 +173,22 @@
     } else if (e.data?.type === 'dialevac:route') {
       route = validRoute(e.data.points) ? e.data.points : null;
       responder = validSelection(e.data.origin) ? e.data.origin : null;
-      routeCoveredRight = Number.isFinite(e.data.coveredRight) ? Math.max(0, e.data.coveredRight) : 0;
+      const coveredRight = Number.isFinite(e.data.coveredRight) ? Math.max(0, e.data.coveredRight) : 0;
+      const coveredBottom = Number.isFinite(e.data.coveredBottom) ? Math.min(140, Math.max(0, e.data.coveredBottom)) : 0;
+      if (coveredRight !== routeCoveredRight || coveredBottom !== routeCoveredBottom) framedRoute = undefined;
+      routeCoveredRight = coveredRight;
+      routeCoveredBottom = coveredBottom;
       render();
     } else if (e.data?.type === 'dialevac:zone') {
       zone = typeof e.data.geometry === 'string' ? parseZone(e.data.geometry) : EMPTY;
       render();
     } else if (e.data?.type === 'dialevac:select') {
-      selection = validSelection(e.data.selection) ? e.data.selection : null;
+      const next = validSelection(e.data.selection) ? e.data.selection : null;
+      // Clients re-send the pickup whenever the responder moves. Only a new pickup may re-frame the map.
+      const unchanged = marker && selection && next && next.lat === selection.lat && next.lng === selection.lng && next.label === selection.label;
+      selection = next;
       if (!selection) clearSelection();
-      else if (window.__map && window.__dialevacState?.ready) showSelection(selection);
+      else if (!unchanged && window.__map && window.__dialevacState?.ready) showSelection(selection);
     } else if (e.data?.type === 'dialevac:refit' && Number.isFinite(e.data.width) && Number.isFinite(e.data.height)) {
       whenFrameIs(e.data.width, e.data.height, refit);
     }
@@ -214,7 +223,7 @@
     announceReady();
   });
 
-  // The hidden panel is the map's only connection status, and this page never reconnects by itself.
+  // Keep a prominent offline alert even when the control panel's feed status is scrolled out of view.
   window.addEventListener('DOMContentLoaded', () => {
     const offline = document.createElement('div');
     offline.className = 'embed-offline';

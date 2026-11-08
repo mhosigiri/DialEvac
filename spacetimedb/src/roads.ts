@@ -3,6 +3,7 @@ import { requireOperator } from "./authorization";
 import { spacetimedb } from "./schema";
 import { audit, type Tx } from "./core";
 import { requestReplan } from "./dispatch";
+import { validIncidentPoint } from "../../shared/incident";
 
 // Closures from the feed poller, drivers, residents and the manual control. Any change bumps the
 // road version, and the dispatcher re-plans at once.
@@ -26,6 +27,7 @@ export const closeRoad = spacetimedb.reducer(
   { externalId: t.string(), source: t.string(), street: t.string(), lat: t.f64(), lng: t.f64() },
   (ctx, closure) => {
     requireOperator(ctx);
+    if (!closure.externalId.trim() || closure.externalId.length > 150 || !closure.street.trim() || closure.street.length > 300 || !validIncidentPoint(closure)) throw new SenderError("A closure needs an ID, street name and valid coordinates");
     if (!["manual", "driver", "resident", "feed"].includes(closure.source)) throw new SenderError(`unknown closure source ${closure.source}`);
     if (upsertClosure(ctx, { ...closure, active: true })) bumpRoads(ctx);
   },

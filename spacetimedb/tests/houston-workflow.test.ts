@@ -67,7 +67,7 @@ it.each(["hurricane", "flood", "wildfire"])("rehearses %s from polygon and queue
   tx(ctx => m.matchClosestDispatcher(ctx, { requestId: request.id })); tx(ctx => m.matchClosestDispatcher(ctx, { requestId: request.id }));
   const a = [...h.db.assignment.requestId.filter(request.id)][0];
   expect([...h.db.assignment.requestId.filter(request.id)]).toHaveLength(1);
-  expect(h.db.vehicle.id.find(a.vehicleId)?.name).toBe(hazard === "wildfire" ? "Houston demo medical unit" : "Houston demo rescue unit");
+  expect(h.db.vehicle.id.find(a.vehicleId)?.name).toBe(hazard === "wildfire" ? "Houston medical unit" : "Houston rescue unit");
   tx(ctx => m.approveOffer(ctx, { assignmentId: a.id })); tx(ctx => m.acceptOffer(ctx, { assignmentId: a.id }));
   tx(ctx => m.notifyResident(ctx, { requestId: request.id })); tx(ctx => m.simulateResidentDelivery(ctx, { requestId: request.id }));
   expect([...h.db.message.householdId.filter(home.id)].every(msg => msg.state === "sent" && msg.providerId?.startsWith("simulated:"))).toBe(true);

@@ -1,6 +1,6 @@
 export type Point = { lat: number; lng: number };
 
-// OSRM may repeat a waypoint when steps=false and omit that duplicate with steps=true.
+// Compatible road providers can repeat a waypoint in geometry without directions.
 // Compare the same path without treating a repeated consecutive vertex as a different road.
 export function sameRoadGeometry(a: readonly Point[], b: readonly Point[]) {
   const compact = (points: readonly Point[]) => points.filter((point, index) => !index || point.lat !== points[index - 1].lat || point.lng !== points[index - 1].lng);

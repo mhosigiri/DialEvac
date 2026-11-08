@@ -2,6 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { env, mayContact } from "./env";
 import type { Contract, MessageRow } from "./contract";
 import { PhotonError, photonClient, type ReceivedText } from "./photon";
+import { guardResidentTurn } from "../../spacetimedb/src/domain/honesty";
 
 // The Photon service. Sends every queued outbound message over iMessage (or prints it with the
 // terminal provider) and hands every resident reply to the module, which decides what to answer.
@@ -22,6 +23,10 @@ export async function deliver(db: Contract, row: MessageRow, send: Send) {
     return;
   }
   try {
+    if (guardResidentTurn(row.body, db.residentState?.(home.id), "message").blocked) {
+      await db.messageFailed(row.id, "Honesty guard blocked a stale or unverified message; review the current case before retrying");
+      return;
+    }
     await db.messageSent(row.id, await send(home.phone, row.body, `hackutd-message-${row.id}`));
   } catch (error) {
     if (error instanceof PhotonError && error.code === "SHARED_LINE_INBOUND_REQUIRED") return db.messageWaiting(row.id, error.message);

@@ -97,6 +97,17 @@ test('refit frames a route around the case file covering the map', () => {
   assert.equal(calls.fit[1].options.padding.right, 364);
 });
 
+test('directions frame the whole road route above the Gemini overlay', () => {
+  const { calls, receive } = loadEmbed();
+  receive({ type: 'dialevac:route', points: ROUTE, coveredBottom: 120 });
+  assert.equal(calls.fit.at(-1).options.padding.bottom, 184);
+  const fitted = calls.fit.length;
+  receive({ type: 'dialevac:route', points: ROUTE, coveredBottom: 120 });
+  assert.equal(calls.fit.length, fitted, 'unchanged snapshots must not reset the user map position');
+  receive({ type: 'dialevac:route', points: ROUTE, coveredBottom: 0 });
+  assert.equal(calls.fit.at(-1).options.padding.bottom, 64);
+});
+
 test('refit ignores messages from other windows', () => {
   const { calls, receive } = loadEmbed();
   receive(REFIT, {});

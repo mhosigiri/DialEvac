@@ -1,5 +1,7 @@
 import type { ElevenLabs } from "@elevenlabs/elevenlabs-js";
 import { agentConfig } from "./elevenlabs";
+import { SPEECH } from "../../spacetimedb/src/domain/honesty";
+import { withVoiceSafety } from "./voice-safety";
 
 export function demoContacts(allowlist: readonly string[], residentLast4 = "5303", dispatcherLast4 = "3841") {
   const phones = allowlist.map(phone => phone.trim());
@@ -46,9 +48,9 @@ export function demoAgentConfig(webhookId: string, dispatcherPhone: string, publ
     name: "State Farm Houston demo — single resident",
     conversationConfig: { ...config.conversationConfig, agent: { ...config.conversationConfig.agent,
       dynamicVariables: { dynamicVariablePlaceholders: { ...config.conversationConfig.agent.dynamicVariables.dynamicVariablePlaceholders, secret__assessment_token: "" } },
-      firstMessage: "Hi {{name}}, this is a simulated catastrophe response demonstration. Are you able to leave your demo home safely, or would you need assistance?",
+      firstMessage: SPEECH.demoFirst,
       prompt: { ...config.conversationConfig.agent.prompt,
-        prompt: `${config.conversationConfig.agent.prompt.prompt}\n\nSINGLE-RESIDENT HOUSTON DEMO OVERRIDE:\nThis is a simulation. After gathering the survey answers, call record_assessment and wait for recorded=true. Do not end the survey call at that point. Ask whether the resident wants to speak to the human dispatcher. If they agree and the assessment was saved, call request_handoff and wait for requested=true, then use transfer_to_number. Transfer only to the configured dispatcher. Never promise a rescue unit or arrival time. If saving fails, explain that the update was not saved and do not claim the dispatcher received it. If transfer fails, explain that the connection failed; never report it as successful. Unknown answers stay unknown. For callback-kind calls, use the existing callback behavior and do not call any demo tool.`,
+        prompt: withVoiceSafety(`${config.conversationConfig.agent.prompt.prompt}\n\nSINGLE-RESIDENT HOUSTON DEMO OVERRIDE:\nThis is a simulation. After gathering the survey answers, call record_assessment and wait for recorded=true. Do not end the survey call at that point. Ask whether the resident wants to speak to the human dispatcher. If they agree and the assessment was saved, call request_handoff and wait for requested=true, then use transfer_to_number. Transfer only to the configured dispatcher. Never promise a rescue unit or arrival time. If saving fails, explain that the update was not saved and do not claim the dispatcher received it. If transfer fails, explain that the connection failed; never report it as successful. Unknown answers stay unknown. For callback-kind calls, use the existing callback behavior and do not call any demo tool.`),
         tools: [assessment, handoff],
         builtInTools: { ...config.conversationConfig.agent.prompt.builtInTools,
           transferToNumber: { type: "system", name: "transfer_to_number", description: "Transfer the live demo survey to the configured human only after record_assessment succeeded and the resident agreed.",

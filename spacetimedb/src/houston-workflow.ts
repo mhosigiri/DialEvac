@@ -35,14 +35,14 @@ export function seedHoustonCatalogue(ctx: Tx) {
   for (const s of HOUSTON_SCENARIOS) {
     const rings: [number, number][][] = [[[s.lng - .012, s.lat - .007], [s.lng + .012, s.lat - .007], [s.lng + .012, s.lat + .007], [s.lng - .012, s.lat + .007], [s.lng - .012, s.lat - .007]]];
     const existing = ctx.db.zone.externalId.find(`demo-houston-${s.hazard}`);
-    const fields = { source: "simulated-houston", name: s.name, event: s.hazard, severity: "Simulated", rings: JSON.stringify(rings), active: true,
-      at: existing?.at ?? ctx.timestamp, headline: `Synthetic ${s.hazard} exercise; no real outreach`, issuedAt: existing?.issuedAt ?? ctx.timestamp, expiresAt: later(ctx, 3600),
+    const fields = { source: "simulated-houston", name: s.name, event: s.hazard, severity: "Unspecified", rings: JSON.stringify(rings), active: true,
+      at: existing?.at ?? ctx.timestamp, headline: `${s.name} response area`, issuedAt: existing?.issuedAt ?? ctx.timestamp, expiresAt: later(ctx, 3600),
       url: undefined, messageType: undefined, kind: "demo", geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX" };
     const zone = existing ? ctx.db.zone.id.update({ ...existing, ...fields }) : ctx.db.zone.insert({ id: 0n, externalId: `demo-houston-${s.hazard}`, ...fields });
     let home = ctx.db.household.riderId.find(`demo-houston-catalogue-${s.hazard}`);
     if (!home) {
-      home = insertHousehold(ctx, { riderId: `demo-houston-catalogue-${s.hazard}`, name: `Simulated ${s.hazard} household`,
-        address: `Synthetic ${s.name} address, Houston, TX`, lat: s.lat, lng: s.lng, phone: `+1713555010${HOUSTON_SCENARIOS.indexOf(s) + 1}`,
+      home = insertHousehold(ctx, { riderId: `demo-houston-catalogue-${s.hazard}`, name: `${s.name} household`,
+        address: `${s.name} area, Houston, TX`, lat: s.lat, lng: s.lng, phone: `+1713555010${HOUSTON_SCENARIOS.indexOf(s) + 1}`,
         language: "en", mobility: s.mobility, assistance: s.assistance, people: 2, oxygen: s.oxygen, simulated: true });
       home = ctx.db.household.id.update({ ...home, inZone: true, reach: "door_check", hazardAt: later(ctx, 45 * 60) });
     } else if (!home.inZone || home.mobility !== s.mobility || home.assistance !== s.assistance || home.oxygen !== s.oxygen) {
@@ -59,8 +59,8 @@ export function seedHoustonCatalogue(ctx: Tx) {
     if (s.hazard === "hurricane" && live && !ctx.db.catastropheCase.householdId.find(live.id)) ctx.db.catastropheCase.insert({ householdId: live.id, zoneId: zone.id,
       hazard: s.hazard, runId: "live-prepared", callId: undefined, duringSnapshotJson: undefined, simulated: true, updatedAt: ctx.timestamp });
   }
-  if (![...ctx.db.vehicle.iter()].some(v => v.name === "Houston demo medical unit")) ctx.db.vehicle.insert({ id: 0n,
-    name: "Houston demo medical unit", driverName: "Demo medical dispatcher", kind: "ambulance", seats: 2, wheelchairSpaces: 0,
+  if (![...ctx.db.vehicle.iter()].some(v => v.name === "Houston medical unit")) ctx.db.vehicle.insert({ id: 0n,
+    name: "Houston medical unit", driverName: "Medical dispatch", kind: "ambulance", seats: 2, wheelchairSpaces: 0,
     stretcherSpaces: 1, crew: 2, lift: true, lat: 29.771, lng: -95.406, simulated: true });
   sweepCoverage(ctx);
 }
@@ -82,7 +82,7 @@ export const simulateCatastrophe = spacetimedb.reducer({ hazard: t.string(), run
   }
   const zone = ctx.db.zone.externalId.find(`demo-houston-${hazard}`)!;
   ctx.db.zone.id.update({ ...zone, at: ctx.timestamp, issuedAt: ctx.timestamp });
-  const home = insertHousehold(ctx, { riderId, name: `Simulated ${hazard} resident (${runId})`, address: `Synthetic ${s.name} home, Houston, TX`,
+  const home = insertHousehold(ctx, { riderId, name: `${s.name} household`, address: `${s.name} area, Houston, TX`,
     lat: s.lat + .001, lng: s.lng + .001, phone: "+17135550199", language: "en", mobility: s.mobility,
     assistance: s.assistance, people: 2, oxygen: s.oxygen, simulated: true });
   ctx.db.household.id.update({ ...home, inZone: true, hazardAt: later(ctx, 45 * 60) });
@@ -115,8 +115,8 @@ export const simulateAssessment = spacetimedb.reducer({ householdId: t.u64() }, 
   if (!call || call.phase !== "queued") throw new SenderError("Simulation call changed");
   const updated = applyRecord(ctx, home, { canLeave: false, people: home.people, oxygen: home.oxygen }, "simulated-voice");
   const request = ctx.db.request.householdId.find(home.id)!;
-  const turns = [{ speaker: "agent", text: "SIMULATION: Are you safe, can you leave, how many people need help, and is medical equipment needed?" },
-    { speaker: "resident", text: `SIMULATION: ${home.people} people need transport. Mobility: ${home.mobility}. ${home.oxygen ? "Supplemental oxygen required" : "No supplemental oxygen"}. We cannot leave without assistance.` }];
+  const turns = [{ speaker: "agent", text: "Are you safe, can you leave, how many people need help, and is medical equipment needed?" },
+    { speaker: "resident", text: `${home.people} people need transport. Mobility: ${home.mobility}. ${home.oxygen ? "Supplemental oxygen required" : "No supplemental oxygen"}. We cannot leave without assistance.` }];
   for (const turn of turns) ctx.db.transcriptLine.insert({ id: 0n, callId: call.id, ...turn, requestStatus: request.status, at: ctx.timestamp });
   ctx.db.call.id.update({ ...call, phase: "live", providerId: `simulated:${call.id}` });
   endCall(ctx, call.id, "simulated_answered");
@@ -147,16 +147,16 @@ export const simulateFollowUp = spacetimedb.reducer({ householdId: t.u64() }, (c
   if (!c?.duringSnapshotJson || c.runId === "live-prepared" || request?.status !== "closed") throw new SenderError("A closed simulated case with a during-event assessment is required");
   if (ctx.db.followUp.householdId.find(householdId)) return;
   const during = JSON.parse(c.duringSnapshotJson);
-  const after = { ...during, canLeave: true, people: 2, safeLocation: "Simulated Houston shelter", immediateMedicalNeeds: "None reported in simulation" };
+  const after = { ...during, canLeave: true, people: 2, safeLocation: "Houston shelter", immediateMedicalNeeds: "None reported" };
   const questions = [
     { key: "safety", prompt: "Are you now safe, and where are you staying?", answer: after.safeLocation },
-    { key: "canLeave", prompt: "Can you now leave safely without rescue transport?", answer: "Yes, in this simulation" },
+    { key: "canLeave", prompt: "Can you now leave safely without rescue transport?", answer: "Yes" },
     { key: "people", prompt: "How many people remain with you?", answer: "2" },
     { key: "medical", prompt: "Any new injuries, oxygen, medication, mobility or equipment needs?", answer: `${after.immediateMedicalNeeds}; mobility remains ${during.mobility}; oxygen: ${during.oxygen}` },
-    { key: "housing", prompt: "Do you need temporary housing, food or utilities?", answer: "Temporary housing and food requested in simulation" },
-    { key: "contact", prompt: "What is your preferred safe follow-up contact method?", answer: "Simulated text only; no real sends" },
-    { key: "insuranceSelf", prompt: "Do you have personal insurance coverage?", answer: "Yes (synthetic)" },
-    { key: "insuranceVehicle", prompt: "Do you have vehicle insurance?", answer: "No (synthetic)" },
+    { key: "housing", prompt: "Do you need temporary housing, food or utilities?", answer: "Temporary housing and food requested" },
+    { key: "contact", prompt: "What is your preferred safe follow-up contact method?", answer: "Text message" },
+    { key: "insuranceSelf", prompt: "Do you have personal insurance coverage?", answer: "Yes" },
+    { key: "insuranceVehicle", prompt: "Do you have vehicle insurance?", answer: "No" },
     { key: "insuranceProperty", prompt: "Do you have property or renters insurance?", answer: "Unknown; resident has not confirmed" },
   ];
   const changes = Object.entries(after).filter(([key, value]) => during[key] !== value).map(([field, after]) => ({ field, before: during[field] ?? null, after }));

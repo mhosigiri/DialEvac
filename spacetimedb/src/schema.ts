@@ -414,6 +414,8 @@ export const spacetimedb = schema(
       FEED_AREA: t.option(t.string()),
       // Only a separately published demo database may run public fixture reducers.
       DEMO_MODE: t.option(t.string()),
+      // Temporary browser dispatch access, effective only on a synthetic isolated demo.
+      DEMO_PUBLIC_DISPATCH: t.option(t.string()),
       // Explicit authenticated caller identities. Absence grants nobody the role.
       OPERATOR_IDENTITIES: t.option(t.string()),
       SERVICE_IDENTITIES: t.option(t.string()),

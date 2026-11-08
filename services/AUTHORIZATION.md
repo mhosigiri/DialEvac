@@ -47,6 +47,8 @@ Keep the other shell module environment variables unset for this command. Do not
 
 ## Demo and verification
 
+The November 8 historical-data demo explicitly enables `DEMO_PUBLIC_DISPATCH=true` on `hackutd-richardson`. With `DEMO_MODE=isolated` and all households/vehicles marked simulated, every browser identity may use operator actions and edit demo assessments. Service-only and internal actions retain their identity checks. Either missing flag or any real household/vehicle restores the usual operator grants. Existing grant lists are preserved. Disable the temporary access using `spacetime publish hackutd-richardson --server maincloud --env-only --unset-env DEMO_PUBLIC_DISPATCH --no-config --yes=remote,migrate,skip-login` with that variable unset in the publishing shell. The operational database remains unchanged.
+
 The five public fixture reducers remain available only under the existing `DEMO_MODE=isolated`, all-simulated-data, no-active-incident guards. They do not grant ordinary operator/service access. Demos fail closed on the operational database. Preserve this boundary rather than enabling demo mode there.
 
 For the synthetic connector check, provide the granted demo service token privately as `SPACETIME_DEMO_SERVICE_TOKEN` and run `npm run check:connections -- --write-demo`. It only writes `hackutd-richardson`; the operational connection stays read-only, and no voice or message runners start. The check tests durable transcript deduplication by sending the same final conversation twice.

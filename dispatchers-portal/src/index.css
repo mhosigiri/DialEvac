@@ -208,6 +208,75 @@ textarea {
   }
 }
 
+/* Notifications stay anchored to the utility row on desktop and become a
+   viewport-bound sheet beside the compact rail on mobile. */
+.eoc-notifications {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.eoc-notifications-panel {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: min(560px, calc(100vh - 88px));
+  overflow: hidden;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-card);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
+}
+
+.eoc-notification-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+}
+
+.eoc-notification-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 12px;
+  text-align: left;
+  background: var(--ds-surface-inset);
+  color: var(--ds-text);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-control);
+  cursor: pointer;
+}
+
+.eoc-notification-item:last-child {
+  margin-bottom: 0;
+}
+
+.eoc-notification-item:hover,
+.eoc-notification-item:focus-visible {
+  background: var(--ds-surface-raised);
+  border-color: var(--ds-border-strong);
+}
+
+@media (max-width: 640px) {
+  .eoc-notifications-panel {
+    position: fixed;
+    top: 64px;
+    right: 12px;
+    left: 76px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 80px);
+  }
+}
+
 .eoc-menu-item:hover:not(:disabled),
 .eoc-menu-item:focus-visible {
   background: #2c2c33 !important;

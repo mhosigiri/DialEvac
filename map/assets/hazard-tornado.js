@@ -7,7 +7,7 @@
   const tornado = sim.createMachine();
   const TORNADO_STATIC = sim.staticCollection();
   const HURRICANE_DURATION = 6500;
-  const HURRICANE_TRACK = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { kind: 'track', label: 'Simulated Gulf-to-North-Texas track' }, geometry: { type: 'LineString', coordinates: sim.HURRICANE_TRACK } }] };
+  const HURRICANE_TRACK = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { kind: 'track', label: 'Gulf-to-North-Texas track' }, geometry: { type: 'LineString', coordinates: sim.HURRICANE_TRACK } }] };
   let view = 'live';
   let selection = null;
   let hurricanePhase = 'idle';
@@ -89,7 +89,7 @@
     }
     const counts = d.fleetCounts(), c = COL[mode] || COL.night;
     setHtml(document.getElementById('fleet'), counts.total
-      ? Object.keys(STATUS_LABEL).map(k => `<span><i style="--c:${c[k]}"></i>${STATUS_LABEL[k]} ${counts[k]}</span>`).join('') + (counts.simulated ? `<span class="sim">${counts.simulated === counts.total ? 'all' : counts.simulated} simulated</span>` : '')
+      ? Object.keys(STATUS_LABEL).map(k => `<span><i style="--c:${c[k]}"></i>${STATUS_LABEL[k]} ${counts[k]}</span>`).join('')
       : '<span class="sim">No vehicles</span>');
   }
   function warningHtml(row) {
@@ -125,7 +125,7 @@
     if (!snap) return EMPTY;
     const features = [
       { type: 'Feature', properties: { kind: 'impact' }, geometry: { type: 'Polygon', coordinates: [[[-96.805,32.952],[-96.705,32.952],[-96.705,33.018],[-96.805,33.018],[-96.805,32.952]]] } },
-      { type: 'Feature', properties: { kind: 'impact-label', label: 'Synthetic hurricane impact area · Richardson' }, geometry: { type: 'Point', coordinates: [-96.755, 33.011] } },
+      { type: 'Feature', properties: { kind: 'impact-label', label: 'Hurricane impact area · Richardson' }, geometry: { type: 'Point', coordinates: [-96.755, 33.011] } },
     ];
     for (const row of snap.roads.values()) if (row.active && row.source === 'simulated') features.push({ type: 'Feature', properties: { kind: 'road', label: row.street }, geometry: { type: 'Point', coordinates: [row.lng, row.lat] } });
     for (const row of snap.shelters.values()) features.push({ type: 'Feature', properties: { kind: 'shelter', label: row.name }, geometry: { type: 'Point', coordinates: [row.lng, row.lat] } });
@@ -145,13 +145,13 @@
     if (view !== 'hurricane' || hurricanePhase !== 'after') { queue.hidden = true; return; }
     queue.hidden = false;
     const status = assignment?.status === 'accepted' ? 'Driver accepted' : assignment?.status === 'offered' ? 'Dispatcher approved · awaiting driver' : 'Dispatcher review';
-    queue.innerHTML = `<div class="queue-item selected"><b>${home?.name || 'Elena Ruiz'} · selected</b><span>Wheelchair-accessible ride · ${status}</span><span>${vehicle ? `${vehicle.name} (${vehicle.kind})` : 'Matching compatible van'}${shelter ? ` → ${shelter.name}` : ''}</span></div><div class="queue-item pending"><b>${pending?.name || 'No response household'}</b><span>No response after 2 simulated attempts · welfare check pending</span></div>`;
+    queue.innerHTML = `<div class="queue-item selected"><b>${home?.name || 'Elena Ruiz'} · selected</b><span>Wheelchair-accessible ride · ${status}</span><span>${vehicle ? `${vehicle.name} (${vehicle.kind})` : 'Matching compatible van'}${shelter ? ` → ${shelter.name}` : ''}</span></div><div class="queue-item pending"><b>${pending?.name || 'No response household'}</b><span>No response after 2 contact attempts · welfare check pending</span></div>`;
     const confirmation = document.getElementById('ride-confirmation');
     const accepted = assignment?.status === 'accepted';
     confirmation.hidden = !accepted;
     if (accepted) {
       const callback = [...snap.callbacks.values()].find(row => row.assignmentId === assignment.id && row.status === 'driver_accepted');
-      confirmation.textContent = callback?.line || `Ride confirmed only after ${vehicle?.driverName || 'the simulated driver'} accepted.`;
+      confirmation.textContent = callback?.line || `Ride confirmed only after ${vehicle?.driverName || 'the driver'} accepted.`;
     }
   }
 
@@ -163,7 +163,7 @@
     document.getElementById('return-live').disabled = view === 'live';
     const title = document.getElementById('view-title'), subtitle = document.getElementById('view-subtitle');
     title.textContent = view === 'live' ? 'Live Weather' : view === 'tornado' ? 'Richardson Tornado' : 'Hurricane Aftermath';
-    subtitle.textContent = view === 'live' ? 'Official NWS warning boundaries on the existing terrain map.' : view === 'tornado' ? 'Synthetic track, plume, impact corridor, and welfare checks.' : 'Synthetic damage and a real simulated dispatch state machine.';
+    subtitle.textContent = view === 'live' ? 'Official NWS warning boundaries on the existing terrain map.' : view === 'tornado' ? 'Storm track, impact corridor, and welfare checks.' : 'Damage assessment and transport coordination.';
   }
   function clearDemoSources() {
     for (const id of ['richardson-scenario-static','richardson-tornado','hurricane-track','hurricane-moving','aftermath']) setData(id, EMPTY);
@@ -304,7 +304,7 @@
           void live()?.advanceAssistanceDemo('accept').then(ok => { if (run === demoRun) workflowStage = ok ? 4 : -1; });
         }
       }
-      return view === 'live' ? '' : `${view === 'tornado' ? sim.LABEL : 'Simulated · Hurricane Aftermath'} · ${phaseText()}`;
+      return view === 'live' ? '' : `${view === 'tornado' ? sim.LABEL : 'Hurricane Aftermath'} · ${phaseText()}`;
     },
   });
 

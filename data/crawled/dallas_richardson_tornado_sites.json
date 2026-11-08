@@ -1,0 +1,80 @@
+[
+  {
+    "id": "richardson-cutters-point",
+    "name": "Cutters Point Apartment Homes (Severe EF-2 Roof Damage)",
+    "city": "Richardson",
+    "address": "1331 W Buckingham Rd, Richardson, TX 75081",
+    "lat": 32.9348,
+    "lng": -96.7358,
+    "hazard_severity": "EF-2 (120 mph)",
+    "damage_type": "Roof peeled, 196 units deemed unsafe to occupy",
+    "vulnerable_population": "High elderly and multi-family density",
+    "phone": "+19722380123"
+  },
+  {
+    "id": "richardson-richland-park",
+    "name": "Richland Park Residential Subdivision",
+    "city": "Richardson",
+    "address": "Buckingham Rd & Audelia Rd, Richardson, TX 75081",
+    "lat": 32.9345,
+    "lng": -96.7265,
+    "hazard_severity": "EF-1 to EF-2",
+    "damage_type": "54 single-family homes with severe roof/wall damage",
+    "vulnerable_population": "Single family residences with trapped seniors",
+    "phone": "+19727444111"
+  },
+  {
+    "id": "richardson-heights-rec",
+    "name": "Heights Recreation Center (City Emergency Shelter)",
+    "city": "Richardson",
+    "address": "711 W Arapaho Rd, Richardson, TX 75080",
+    "lat": 32.9614,
+    "lng": -96.7447,
+    "hazard_severity": "Shelter Staging Zone",
+    "capacity": 800,
+    "wheelchair_accessible": true,
+    "phone": "+19727447892"
+  },
+  {
+    "id": "richardson-city-hall",
+    "name": "Richardson Office of Emergency Management",
+    "city": "Richardson",
+    "address": "411 W Arapaho Rd, Richardson, TX 75080",
+    "lat": 32.961,
+    "lng": -96.7385,
+    "phone": "+19727444100"
+  },
+  {
+    "id": "dallas-fs41",
+    "name": "Dallas Fire Station 41 (Destroyed by EF-3)",
+    "city": "Dallas",
+    "address": "5920 Royal Ln, Dallas, TX 75230",
+    "lat": 32.8942,
+    "lng": -96.8041,
+    "hazard_severity": "EF-3 (140 mph)",
+    "damage_type": "Station roof blown off, vehicles damaged",
+    "phone": "+12146705466"
+  },
+  {
+    "id": "dallas-walnut-hill",
+    "name": "Walnut Hill Commercial Corridor & Residences",
+    "city": "Dallas",
+    "address": "3700 Walnut Hill Ln, Dallas, TX 75220",
+    "lat": 32.8805,
+    "lng": -96.8612,
+    "hazard_severity": "EF-3",
+    "damage_type": "Severe structural destruction, school & residential collapses",
+    "phone": "+12146703111"
+  },
+  {
+    "id": "dallas-northhaven",
+    "name": "North Haven Road Residential Area",
+    "city": "Dallas",
+    "address": "6400 North Haven Rd, Dallas, TX 75230",
+    "lat": 32.908,
+    "lng": -96.795,
+    "hazard_severity": "EF-3 Peak Intensity",
+    "damage_type": "Total exterior wall collapse, power line down, road blockages",
+    "phone": "+12146703111"
+  }
+]

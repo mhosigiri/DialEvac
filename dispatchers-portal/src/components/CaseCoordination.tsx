@@ -8,6 +8,7 @@ import { Badge } from "../design-system/Badge";
 import { Button } from "../design-system/Button";
 import { Facts, Quiet, Section, clock, millis } from "./CaseFileParts";
 import { words } from "./EmergencyFeed";
+import { DirectionsMap } from "./DirectionsMap";
 
 type BadgeTone = React.ComponentProps<typeof Badge>["tone"];
 
@@ -30,13 +31,15 @@ export const RoadRoute: React.FC<{
   if (!assignment) return null;
   const unit = match?.vehicle;
   const stale = route && unit && !routeMatchesLocations(route, unit, row.household);
-  const usable = route?.state === "ready" && !stale;
-  const currentGuidance = usable && guidance?.revision === route.revision ? guidance : undefined;
+  const usable = route?.assignmentId === assignment.id && route?.state === "ready" && !!unit && !stale;
+  const currentGuidance = usable && guidance?.assignmentId === assignment.id && guidance.revision === route.revision ? guidance : undefined;
   let steps: RouteStep[] = [];
   try { if (currentGuidance) steps = parseRouteSteps(JSON.parse(currentGuidance.stepsJson)); } catch { /* Keep the valid road route visible. */ }
 
   return (
-    <Section title="Road route">
+    <Section title="In-app directions">
+      {unit && <DirectionsMap origin={{ ...unit, label: unit.name }} destination={{ ...row.household, label: row.household.address }}
+        points={usable ? route.points : []} summary={currentGuidance?.summary} model={currentGuidance?.model} />}
       {route && <Facts rows={[["Responder coordinates", coordinateText({ lat: route.originLat, lng: route.originLng })], ["Resident coordinates", coordinateText({ lat: route.destinationLat, lng: route.destinationLng })]]} />}
       {stale && <p role="alert" style={{ color: "#e8b84b", fontSize: 12 }}>Responder or resident location changed. Refresh the route to get current directions.</p>}
       {usable && route.distanceMeters !== undefined && route.durationSeconds !== undefined && (
@@ -50,7 +53,7 @@ export const RoadRoute: React.FC<{
       )}
       {usable && (
         <p style={{ margin: "8px 0 0", fontSize: 11.5, lineHeight: 1.45, color: "#9a9aa0" }}>
-          From OSRM's road network, with no live traffic or hazard data. A path through a reported closure is rejected, not rerouted.
+          {route.source === "osmnx" ? "OSMnx driving route · " : "Road route · "}<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>. Estimated drive time excludes live traffic and hazard clearance. A path through a reported closure is rejected.
         </p>
       )}
       {usable && currentGuidance?.state === "ready" && <div style={{ marginTop: 12 }}><h4 style={{ margin: "0 0 6px", fontSize: 13 }}>Gemini route brief</h4><p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>{currentGuidance.summary}</p><p style={{ margin: "4px 0", color: "#9a9aa0", fontSize: 11 }}>{currentGuidance.model} · verify conditions before travel</p></div>}

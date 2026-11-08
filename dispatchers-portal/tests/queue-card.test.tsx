@@ -24,7 +24,7 @@ for (const layout of ["list", "board"] as const) {
     const html = renderToStaticMarkup(
       <EmergencyFeed cases={cases} loading={false} actionsEnabled busyHouseholdId={undefined} activeTab="all" query="" onOpenCase={() => {}} onCommand={() => {}} layout={layout} />
     );
-    for (const text of ["Oxygen dependent", "Stretcher required", "Wheelchair access", "Simulated", "hazard time in about 8 minutes", "hazard time passed about 2 minutes ago"]) {
+    for (const text of ["Oxygen dependent", "Stretcher required", "Wheelchair access", "hazard time in about 8 minutes", "hazard time passed about 2 minutes ago"]) {
       assert.ok(html.includes(text), `missing "${text}"`);
     }
     assert.ok(!html.includes("line-clamp"), "a clamp can cut off hazard timing");

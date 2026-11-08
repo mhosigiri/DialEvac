@@ -23,6 +23,8 @@ export { recordCallTranscript } from "./transcripts";
 export { recordProviderCall, claimCallAnalysis, finishCallAnalysis, retryCallAnalysis } from "./call-records";
 export { recordCallAssessment } from "./households";
 export { seedHoustonVoiceDemo, startDemoOutboundAttempt } from "./houston-demo";
+export { normalizeFixtureLabels } from "./product-labels";
+export { seedHistoricalHoustonDemo } from "./historical-houston";
 export { notifyResident, reportCallHandoff } from "./coordination";
 export { requestDispatchRoute, calculateDispatchRoute, recordDispatchRoute, expireDispatchRoute, recordRouteGuidance } from "./routes";
 export { prepareHoustonDemo, simulateCatastrophe, simulateAssessment, matchClosestDispatcher, simulateFollowUp, simulateResidentDelivery } from "./houston-workflow";

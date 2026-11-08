@@ -11,6 +11,7 @@ web/src/module_bindings/
 .venv/
 __pycache__/
 .pytest_cache/
+**/.cache/osmnx/
 .spacetime/
 
 reference_images/

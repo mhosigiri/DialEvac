@@ -31,26 +31,34 @@ const schedule = (row: DispatchRoute) => {
     if (!conn?.isActive) { handled.delete(key); return; }
     const origin = { lat: row.originLat, lng: row.originLng }, destination = { lat: row.destinationLat, lng: row.destinationLng };
     try {
-      let result;
-      try { result = await fetchGeminiRoute(origin, destination); }
-      catch { result = { ...await fetchRoadDirections(origin, destination), summary: undefined, model: undefined, error: "Gemini guidance unavailable; verified road directions are still shown" }; }
+      // Publish geometry before waiting for Gemini, and route exactly once per job.
+      const route = await fetchRoadDirections(origin, destination);
       const current = conn.db.dispatchRoute.assignmentId.find(row.assignmentId);
       if (!current || current.revision !== row.revision) return;
       if (current.state !== "ready") await conn.reducers.recordDispatchRoute({ assignmentId: row.assignmentId, revision: row.revision,
-        points: result.points, distanceMeters: result.distanceMeters, durationSeconds: result.durationSeconds, failureReason: undefined });
+        points: route.points, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, failureReason: undefined });
       const committed = conn.db.dispatchRoute.assignmentId.find(row.assignmentId);
       if (!committed || committed.revision !== row.revision || committed.state !== "ready") return;
-      if (!sameRoadGeometry(committed.points, result.points)) throw new Error("Road geometry changed while preparing directions");
+      if (!sameRoadGeometry(committed.points, route.points)) throw new Error("Road geometry changed while preparing directions");
+      // Make directions available even while the AI brief is pending/unavailable.
+      await conn.reducers.recordRouteGuidance({ assignmentId: row.assignmentId, revision: row.revision, stepsJson: JSON.stringify(route.steps),
+        summary: undefined, model: undefined, error: "Preparing Gemini route brief; OpenStreetMap directions are available" });
+      let result;
+      try { result = await fetchGeminiRoute(origin, destination, fetch, async () => route); }
+      catch { result = { ...route, summary: undefined, model: undefined, error: "Gemini guidance unavailable; verified road directions are still shown" }; }
       await conn.reducers.recordRouteGuidance({ assignmentId: row.assignmentId, revision: row.revision, stepsJson: JSON.stringify(result.steps),
         summary: result.summary, model: result.model, error: result.error });
       console.log(`[routes] assignment ${row.assignmentId} revision ${row.revision}: ${result.steps.length} road directions; Gemini ${result.summary ? "ready" : "unavailable"}`);
     } catch (error) {
       const current = conn.db.dispatchRoute.assignmentId.find(row.assignmentId);
+      if (current?.revision === row.revision && (current.state === "pending" || current.state === "failed" && current.failureReason?.startsWith("Routing provider"))) {
+        await conn.reducers.recordDispatchRoute({ assignmentId: row.assignmentId, revision: row.revision, points: [], distanceMeters: undefined,
+          durationSeconds: undefined, failureReason: "Routing provider unavailable" }).catch(() => undefined);
+      }
       if (current?.revision === row.revision && current.state === "ready") await conn.reducers.recordRouteGuidance({ assignmentId: row.assignmentId, revision: row.revision,
         stepsJson: "[]", summary: undefined, model: undefined, error: "Driving instructions unavailable; refresh the route to retry" }).catch(() => undefined);
       console.error(`[routes] directions failed for assignment ${row.assignmentId}, revision ${row.revision}: ${error instanceof Error ? error.message : "unknown error"}`);
     }
-    await sleep(1000); // Keep the public demo router below one request per second.
   }).catch(() => { handled.delete(key); });
 };
 async function connect() {
@@ -73,7 +81,7 @@ do {
       if (!values.once) {
         connection.db.dispatchRoute.onInsert((_ctx, row) => schedule(row));
         connection.db.dispatchRoute.onUpdate((_ctx, _old, row) => schedule(row));
-        console.log(`[routes] Gemini + verified-road guidance worker connected on ${database}`);
+        console.log(`[routes] OSMnx/OpenStreetMap + Gemini guidance worker connected on ${database}`);
       }
     }
     if (values.once) { await queue; break; }

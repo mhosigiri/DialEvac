@@ -13,12 +13,16 @@
     "demo:prepare": "tsx --env-file=../.env scripts/prepare-houston-demo.ts",
     "demo:call": "tsx --env-file=../.env scripts/call-houston-demo.ts",
     "demo:outbound": "tsx --env-file=../.env scripts/outbound-demo.ts",
+    "demo:preflight": "tsx --env-file=../.env scripts/demo-preflight.ts",
+    "voice:safety": "tsx --env-file=../.env scripts/prepare-voice-safety.ts",
+    "eval:voice": "tsx --env-file-if-exists=../.env scripts/evaluate-voice.ts",
     "routes": "tsx --env-file=../.env scripts/route-bridge.ts",
     "catastrophe": "tsx --env-file=../.env scripts/simulate-catastrophe.ts",
     "demo:rehearse": "tsx --env-file=../.env scripts/rehearse-houston.ts",
     "demo:configure": "tsx --env-file=../.env scripts/configure-demo-agent.ts",
     "test": "node --import tsx --test tests/*.test.ts",
-    "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts"
+    "setup:elevenlabs": "tsx --env-file=../.env scripts/elevenlabs-setup.ts",
+    "demo:history": "tsx --env-file=../.env scripts/seed-historical-houston.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.77.0",

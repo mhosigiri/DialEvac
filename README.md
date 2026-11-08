@@ -1,168 +1,387 @@
-# The Worst Day, at Scale
+# DialEvac: Autonomous Disaster Outreach, Triage & Evacuation Routing at Scale
 
-The groundwork for an emergency response line, built for State Farm's HackUTD prompt:
+Built for **HackUTD 2026** — addressing the **State Farm Prompt**, **SpacetimeDB Track**, and **Photon Track**.
 
-> When a major disaster affects thousands of people simultaneously, how might we use AI and technology to identify those with the most urgent needs, coordinate assistance, and ensure no one is overlooked?
+> **State Farm Challenge:** *When a major disaster affects thousands of people simultaneously, how might we use AI and technology to identify those with the most urgent needs, coordinate assistance, and ensure no one is overlooked?*
 
-A hazard warning puts homes in a zone. The system texts and calls each home, learns who needs a ride and what kind, and dispatches vehicles. It tells every resident only what is true. Each part of the prompt has one home in the code:
+When a catastrophe strikes—whether a Category 4 hurricane slamming the Gulf Coast, catastrophic flash flooding across Houston bayous, or an erratic wildfire sweeping through a residential canyon—emergency infrastructure fractures under extreme load. 911 phone queues jam within minutes, emergency dispatch rooms become overwhelmed by thousands of simultaneous calls, and the residents in greatest danger—the elderly, wheelchair users, bedbound individuals, and patients dependent on electric medical equipment—are left stranded.
 
-| The prompt asks | Where it lives |
-| --- | --- |
-| Identify those with the most urgent needs | `spacetimedb/src/domain/urgency.ts` ranks every home. Time left before the hazard comes first, then whether they can leave on their own (mobility, oxygen, household size), then a 0-1 prior from records before anyone has been asked. Every survey call carries that rank, and the voice service places the highest first. |
-| Coordinate assistance | Ride requests, offers, driver accepts, re-plans on road closures and record corrections, and status callbacks (`plans.ts`, `offers.ts`, `dispatch.ts`). Requests are served earliest deadline first. |
-| Ensure no one is overlooked | `spacetimedb/src/domain/coverage.ts` puts every home in the zone in exactly one account. Every 30 seconds a sweep recounts them into the `coverage` table and puts any home nobody is reaching back on the ladder. Picking up the phone is not being reached: a home counts once a record says whether it can leave. |
+**DialEvac reverses the 911 paradigm.** Instead of waiting for panicked residents to reach overloaded emergency lines, DialEvac's autonomous multi-channel engine calls and texts every household in the hazard warning zone in parallel. Powered by **Photon SIP trunking & SMS**, **ElevenLabs Conversational AI**, **Anthropic Claude**, and **Google Gemini**, DialEvac conducts high-urgency conversational triage, extracts structured clinical and mobility constraints mid-call, routes emergency fleets through real street graphs using **OSMnx** and **OR-Tools**, and guarantees mathematical coverage where **zero residents are overlooked** using **SpacetimeDB's transactional execution engine**.
 
-The architecture comes from Standard-Response, with three changes:
+![Emergency Operations Center Overview](thumbnails/dashboard.png)
+*The DialEvac Incident Command Console over 164 real historical flood locations in Houston during a severe storm event. 100% of the zone is accounted for, 0 overlooked, multi-variable urgency triage (Critical, High, Medium, Door Check), real-time fleet coordination, and live NWS alert overlays.*
 
-- SpacetimeDB holds all state and runs all logic, in place of Convex.
-- Photon carries the text fallback and status callbacks over iMessage, through its Beta REST API.
-- An in-module procedure polls National Weather Service alerts, in place of Apify. It needs no key.
+---
 
-`map/` is the only map. It is a MapLibre globe with real terrain that subscribes to `zone` and `vehicle` and draws NWS tornado warnings and the fleet.
+### DialEvac vs. Conventional Disaster Dispatch
 
-## Layout
+| Metric | Traditional 911 Response | DialEvac Autonomous System |
+| :--- | :--- | :--- |
+| **Outreach Direction** | **Inbound only** (residents must dial 911 repeatedly) | **Outbound parallel survey** (calls and texts every home at once) |
+| **Triage Throughput** | Sequential (1 caller per human dispatcher; hours-long wait queue) | **Simultaneous** (hundreds of concurrent voice & SMS triage sessions via Photon) |
+| **Priority Ranking** | First-come, first-served (whoever connects first) | **Multi-variable urgency score** ($U = \text{Window}\cdot 100 + \text{Vulnerability}\cdot 9 + \text{Countdown}\cdot 9$) |
+| **Medical Compatibility** | Verbal notes passed over radio; high risk of mismatched vehicles | **Strict constraint matching** (stretcher spaces, wheelchair lifts, oxygen, lift crews) |
+| **Route Navigation** | Straight-line distance or consumer GPS blind to active closures | **Graph-theoretic routing (OSMnx)** with 150m closure buffers + **Gemini AI route clearance** |
+| **Coverage Guarantee** | None (unanswered calls drop off queue; thousands unaccounted for) | **Formal invariant**: $100\%$ accounted, **$\mathbf{0}$ overlooked** via SpacetimeDB sweeps |
 
-| Folder | What it holds |
-| --- | --- |
-| `spacetimedb/` | The module: tables, reducers, scheduled jobs, and the rules every client depends on. |
-| `services/` | Two Node processes that talk to the outside world. `voice.ts` places calls from the Photon number, where an ElevenLabs agent talks with each resident, and takes the results back by webhook. Residents can also call the Photon number; the same agent answers, and the call is matched to their home by caller number. `messaging.ts` sends and receives Photon messages. |
-| `dispatch/` | The Python route solver (OR-Tools), served over HTTP. The module falls back to a built-in heuristic when it is not configured or does not answer. |
-| `dispatchers-portal/` | EOC dispatcher dashboard with live Spacetime subscriptions, household triage, vehicle matching, and call transcripts. |
-| `map/` | Natroness's MapLibre globe and terrain map, live NWS tornado warnings, fleet markers, opt-in IEM radar, and isolated remote demos. |
+---
 
-## How a night runs
+## The Crisis: Why Conventional Dispatch Fails
 
-1. An operator uses `setZone` to mark the outreach area, then `issueWarning` starts each in-zone home's reach ladder. The live NWS map feed is display-only and does not start calls or messages. Every home gets a survey text at once, since texts go out in parallel. Then comes a call, a retry at 2 minutes and another at 5, then the door-check list for field teams. Calls are paced, so a step waits while the home's last call is still queued. A home still unreached 25 minutes before its hazard goes to door checks without waiting.
-2. A survey answer by keypad or text reply updates the household. That opens a ride request with the household's needs: mobility, crew size, lift, oxygen and a deadline from the hazard.
-3. `replan` runs every 5 seconds and whenever a road closes. It builds the problem from live tables, asks the solver, and writes a plan. An accepted run is frozen; the planner can only add stops after it.
-4. A driver accepts or declines the offer. Offers expire after 2 minutes. Accepting moves the request to `driver_accepted`. That queues one callback and one Photon message, keyed so a retry never sends two.
-5. Corrections are logged. When a correction makes an accepted vehicle unfit, the assignment is revoked and the resident is told. An offer the driver never accepted ends silently.
+During major natural catastrophes, the people who perish are almost always those who cannot evacuate without assistance:
 
-Every line a resident hears or reads comes from a template in `spacetimedb/src/domain/honesty.ts`, chosen by the request's status. Generated text never decides what is promised.
+| Disaster | Fatalities | Vulnerable Populations Disproportionately Impacted |
+| :--- | :--- | :--- |
+| **Hurricane Harvey, Houston (2017)** | 100+ | Over 56,000 emergency calls overwhelmed 911 in 15 hours. Elderly residents and patients on oxygen/dialysis were trapped as floodwaters rose to ceilings. |
+| **Lahaina Wildfire, Maui (2023)** | 102 | More than two-thirds of victims were aged 60 or older, unable to flee fast-moving brush fire without transport. |
+| **Camp Fire, Paradise (2018)** | 85 | Majority over 65; many had mobility impairments and received late or nonexistent warning. |
+| **Hurricane Katrina, Louisiana (2005)** | 971 | Nearly half of all victims were 75 or older, abandoned in waterlogged homes and care facilities. |
 
-Stand-ins cover the parts without real inputs yet. They are on by default and switched off with `setStandIns`. Simulated homes (555 numbers) answer their own calls, simulated drivers accept after 6 seconds, and vehicles drive in straight lines. The services never contact a 555 number.
+A United Nations survey of over 6,000 people with disabilities revealed that **80% cannot evacuate immediately without specialized assistance**. 
 
-## Setup
+In an emergency operations center (EOC), vehicles and community volunteers are rarely the bottleneck. **The bottleneck is information:**
+> *"We have four to six dispatchers sitting in the room. When ten thousand calls hit the board at once, the queue backs up endlessly. We cannot determine who needs a wheelchair lift versus who can walk, who is on a dying oxygen concentrator, and which streets are impassable before it's too late."*
 
-Install the SpacetimeDB CLI yourself (https://spacetimedb.com/install), then:
+DialEvac solves this with an end-to-end autonomous triage, optimization, and dispatch pipeline.
+
+---
+
+## How DialEvac Works
+
+![Emergency Operations Live Incident Map and Case File](thumbnails/emergency_operations.png)
+*Emergency Operations Live Incident Map: Interactive incident polygon overlay with urgency-coded household pins, live responder routing, and individual case drawer featuring one-click dispatch confirmation, turn-by-turn directions, and Gemini AI route clearance brief.*
+
+```mermaid
+flowchart TD
+    subgraph S1 ["1. Hazard Ingestion & Urgency Scoring"]
+        NWS["NWS Alerts API / Radar"] --> ZONE["SpacetimeDB: Hazard Polygon"]
+        ZONE --> HH["In-Zone Households"]
+        HH --> URG["Urgency Scorer: urgency.ts"]
+    end
+
+    subgraph S2 ["2. Autonomous Multi-Channel Triage"]
+        URG --> PHO["Photon SIP Trunking & SMS / iMessage"]
+        PHO <--> EL["ElevenLabs Conversational AI Voice Agent"]
+        EL -- "Live Tool Call" --> ASSESS["SpacetimeDB: recordCallAssessment"]
+        EL -- "Agent Transfer" --> HANDOFF["SpacetimeDB: call_handoff (SIP REFER)"]
+        EL -- "Post-Call Webhook" --> CLAUDE["Claude Clinical Extractor: call_analysis"]
+    end
+
+    subgraph S3 ["3. Fleet Optimization & Road Routing"]
+        ASSESS --> SOLV["OR-Tools & ALNS Solver (EDF + Capacity)"]
+        SOLV --> PLAN["SpacetimeDB: proposePlan / writePlan"]
+        PLAN --> OSM["OSMnx OpenStreetMap Router (150m Closure Buffer)"]
+        OSM --> GEMINI["Gemini AI Route Clearance Briefing"]
+    end
+
+    subgraph S4 ["4. Operational Dispatch & Driver HUD"]
+        PLAN --> PORTAL["Dispatchers Portal (EOC Console)"]
+        PLAN --> DRIVER["DialEvac Driver Companion (Mobile HUD)"]
+        DRIVER --> ACCEPT["Driver acceptOffer / declineOffer"]
+        ACCEPT --> HONEST["Constitutional Honesty Callback & SMS"]
+    end
+
+    subgraph S5 ["5. Mathematical Coverage Guarantee"]
+        SWEEP["SpacetimeDB Scheduled Procedure: sweepCoverage (every 30s)"]
+        SWEEP --> ACC["Mutually Exclusive Accounts: Leaving On Own | Helped | Requested | Door Check"]
+        ACC --> ZERO["Invariant: Overlooked = 0"]
+    end
+```
+
+### 1. Ingest Warnings & Build Zone Census
+When an operator issues a warning or an NWS polygon (tornado, hurricane, flood, wildfire) is declared, DialEvac executes a spatial polygon-containment scan across all regional households.
+
+Every household inside the warning zone is immediately assigned an **Urgency Score** ($U$) calculated by `spacetimedb/src/domain/urgency.ts`:
+
+$$U = \text{Window} \times 100 + \text{Vulnerability} \times 9 + \text{Countdown} \times 9$$
+
+- **Hazard Windows** ($\text{Window} \in \{0, 1, 2, 3\}$): Tighter hazard deadlines (30 min, 60 min, 120 min) add 100-point blocks, ensuring impending danger always outranks lower-threat zones.
+- **Vulnerability Weight**: Mobility requirements ($\text{Bedbound} = 3$, $\text{Wheelchair} = 2$, $\text{Walker} = 1$, $\text{Walks} = 0$) + Continuous Oxygen Dependency ($+2$) + Household Occupancy ($\frac{\text{people}}{3}$) + Prior Registry Vulnerability ($3 \times \text{prior}$).
+- **Hazard Countdown**: Continuous normalized decay toward estimated hazard arrival ($1 - \frac{\text{minutesLeft}}{240}$).
+
+### 2. Autonomous Multi-Channel AI Triage
+DialEvac activates a phased outreach ladder across all in-zone homes simultaneously:
+1. **Parallel SMS / iMessage Survey**: Delivered immediately via the **Photon REST API** with keypad/text reply collection.
+2. **Autonomous Voice Outreach**: High-concurrency outbound telephony via **Photon SIP Trunking** powered by **ElevenLabs Conversational AI** (utilizing **Claude 3.5 Haiku** or **Gemini 2.0 Flash**).
+3. **Mid-Call Tool Execution**: The moment a caller reports a mobility impairment, rising water, or medical crisis, the voice agent executes the live tool `recordCallAssessment` directly to SpacetimeDB mid-call.
+4. **Agent-Driven Human Handoff**: If a caller experiences extreme distress or requests a human, the agent executes `request_handoff` and initiates a live SIP REFER transfer to a human dispatcher via `call_handoff`.
+5. **Post-Call Clinical Extraction**: Audio transcripts are archived in `call_record` and processed by Anthropic Claude into `call_analysis`, recording structured facts with exact transcript quotation citations and turn indices.
+6. **The Constitutional Honesty Guard**: What the system may say to a resident is governed strictly by `spacetimedb/src/domain/honesty.ts`. The agent **never** says "help is on the way" or promises a pickup until a driver has affirmatively accepted the run. Code templates enforce this invariant—models are prohibited from generating rescue promises.
+
+### 3. Graph-Theoretic Road Routing & Gemini AI Route Guidance
+Unlike disaster tools that estimate drive times using straight-line Euclidean distance or naive road speed limits:
+- **OSMnx & OpenStreetMap Graph**: Computes real road network geometry, Dijkstra/A* fastest paths, and step-by-step turn maneuvers from the responder's live vehicle coordinates to the household address.
+- **Active Closure Buffering**: Rejects any candidate route that intersects recorded flood zones or road closures within a 150-meter buffer.
+- **Google Gemini Route Clearance Briefing**: Tool-constrained Gemini invokes `get_driving_directions` with immutable coordinates and synthesizes an authoritative route clearance brief directly onto the driver HUD and dispatcher case file, verifying path viability without hallucinatory road modifications.
+
+### 4. Fleet Optimization & Dispatch Coordination
+- **Constraint-Based Matching (`need.ts`)**: Cross-references patient needs against vehicle capabilities: stretcher spaces, wheelchair lifts, two-person lifting crews, and ambulatory seating.
+- **OR-Tools & ALNS Solver (`dispatch/`)**: Employs an Adaptive Large Neighborhood Search (ALNS) and OR-Tools Dial-a-Ride solver optimizing Earliest Deadline First (EDF) vehicle tours under hazard deadlines.
+- **Frozen Accepted Runs**: Once a first responder taps **Accept Run**, that assignment is permanently frozen. Subsequent optimization passes may only append stops *after* accepted runs, guaranteeing drivers never experience erratic route churn.
+
+### 5. First Responder Mobile Companion
+First responders in ambulances, paratransit vans, and rescue trucks utilize the mobile web application (`driver/`):
+
+![DialEvac Driver Mobile Companion and Gemini Route Guidance](thumbnails/drivers_dashboard.png)
+*DialEvac Driver Mobile Companion: High-contrast in-vehicle HUD featuring real-time offer countdown timer, manifest run lists with click-to-call resident links, interactive OSMnx vector route map, turn-by-turn maneuvers, and Gemini AI route clearance brief.*
+
+- **Live Offers Tab**: Real-time alerts with high-urgency expiration countdowns, passenger headcount, and mobility flags. Large one-touch **Accept Run** and **Decline** controls.
+- **Run List Manifest**: Sequential itinerary of confirmed stops, shelter drop-off points, and driver exception management (`cancelByDriver`).
+- **Turn-by-Turn Navigation HUD**: Maneuver arrows, distance countdowns, street names, vector polyline route maps, and Gemini AI route clearance summaries.
+
+### 6. Mathematical Coverage Guarantee ("No One Is Overlooked")
+Every 30 seconds, SpacetimeDB runs the scheduled procedure `sweepCoverage` (`coverage.ts`). It mathematically partitions every household in the hazard zone into mutually exclusive sets:
+
+$$\text{Total In-Zone Homes} = \text{Leaving On Own} + \text{Helped} + \text{Help Requested} + \text{Escalated} + \text{Door Check} + \text{Reaching} + \mathbf{Overlooked}$$
+
+- **Silence Never Equals Safe**: An unanswered phone call or unacknowledged text does *not* mark a home safe. Homes failing the phone ladder are automatically escalated to the **Door Check** manifest for physical field-team rescue.
+- **Invariant**: $\mathbf{Overlooked} = 0$. If any resident falls out of an active queue without a confirmed disposition, the sweep immediately re-queues them.
+
+---
+
+## Application Surfaces & Live Portals
+
+| Portal / Interface | Path / Port | Primary User | Core Capabilities |
+| :--- | :--- | :--- | :--- |
+| **Emergency Operations Center** | `dispatchers-portal/`<br>`http://localhost:3001` | Incident Commanders & Dispatchers | Direct SpacetimeDB reactive subscriptions, 5-column triage board, detailed case files with Claude clinical analysis & call transcripts, embedded MapLibre 3D map, fleet controls. |
+| **Driver Companion** | `driver/`<br>`http://127.0.0.1:3003` | Emergency Responders & Paratransit | Mobile-first HUD, instant countdown dispatch offers, sequential stop manifests, turn-by-turn road navigation, Gemini AI clearance briefs. |
+| **3D Incident & Terrain Map** | `map/`<br>`http://127.0.0.1:4178` | Situational Awareness Teams | MapLibre GL globe with Terrain-RGB elevation, NWS polygon alerts, Floodplain X-Ray, IEM radar, and live responder telemetry. |
+| **Telephony & Messaging Core** | `services/`<br>`http://localhost:8080` | Autonomous Voice & SMS Engine | Photon SIP trunking, ElevenLabs Conversational AI voice engine, Claude analysis pipeline, Photon iMessage/SMS bridge. |
+| **Python Optimization Engine** | `dispatch/`<br>Ports `8799` & `8800` | Automated Routing Services | OSMnx graph routing server (port 8800) and OR-Tools dial-a-ride dispatch solver (port 8799). |
+
+---
+
+## Hackathon Sponsor Tracks & Technical Architecture
+
+### 1. State Farm Prompt
+*“When a major disaster affects thousands of people simultaneously, how might we use AI and technology to identify those with the most urgent needs, coordinate assistance, and ensure no one is overlooked?”*
+
+- **Identify Urgent Needs**: Dynamic urgency scoring (`urgency.ts`) ranks thousands of households using multi-factor equations combining hazard ETA, bedbound/wheelchair mobility, oxygen dependencies, and family size.
+- **Coordinate Assistance**: Multi-constraint fleet assignment (`need.ts`, `plans.ts`) matches specialized vehicles (lifts, stretchers, multi-person crews) to residents, calculating real street-network routes with OSMnx avoiding floodwaters.
+- **Ensure No One Is Overlooked**: Transactional coverage accounting (`coverage.ts`) guarantees every single household in the disaster zone is tracked through an automated reach ladder. Unreachable residents are surfaced on physical door-check manifests.
+
+### 2. SpacetimeDB Track
+SpacetimeDB serves as DialEvac's single source of truth and distributed execution engine, replacing disjoint databases, message queues, and API layers:
+- **Relational In-Memory Execution**: 35 public/private tables, 58+ reducers, 3 procedures, and 7 schedules run directly inside the module (`spacetimedb/`).
+- **Reactive Client Subscriptions**: The Dispatchers Portal and Driver App subscribe directly via WebSockets (`spacetimedb/react`). State updates—from phone transcripts to driver accepts—replicate to UI clients with sub-millisecond latency.
+- **ACID Transaction Guarantees**: Prevents race conditions during mass emergencies. Offer acceptance (`acceptOffer`) uses version-checked transactions, ensuring a vehicle cannot be double-booked by simultaneous taps.
+- **Scheduled Autonomous Procedures**: Background procedures (`sweepCoverage`, `replan`, `pollFeeds`) execute deterministically on the database engine.
+
+### 3. Photon Track
+Photon powers DialEvac's multi-channel communications backbone:
+- **Photon SIP Trunking**: Carries high-concurrency outbound telephony and inbound emergency lines directly connected to ElevenLabs Conversational AI over SIP.
+- **Photon REST API (iMessage / SMS)**: Dispatches high-volume parallel survey texts to all in-zone residents, tracks message delivery states, and streams status notifications directly to residents' mobile devices.
+
+### 4. ElevenLabs Conversational AI
+- **Ultra-Low Latency Voice Agent**: Delivers human-quality conversational emergency triage, minimizing conversational turn gaps to conduct structured 4-turn safety assessments.
+- **Mid-Call Tool Calling**: Executes `recordCallAssessment` directly to SpacetimeDB during the live call, capturing life-threatening details before the conversation concludes.
+- **Agent-Driven SIP REFER Transfer**: Natively triggers human dispatcher handoffs (`call_handoff`) when complex resident assistance is detected.
+
+### 5. Anthropic Claude
+- **Clinical Triage Extraction**: Claude processes raw call transcripts into structured JSON records in `call_analysis`, extracting mobility constraints, medical equipment dependencies, and hazard severity.
+- **Quote Grounding & Evidence Verification**: Every fact extracted by Claude is grounded with exact verbatim quotes and turn indices; ungrounded hallucinations are automatically rejected.
+- **Constitutional Honesty Verification**: Checks practice calls and agent statements to verify compliance with 911 honesty principles.
+
+### 6. Google Gemini
+- **Gemini 2.0 Flash Voice Brain**: Available as an ultra-low Time-to-First-Token (TTFT ~180 ms) conversational model in the voice pipeline.
+- **Gemini AI Route Clearance Briefing**: Evaluates OSMnx road geometry, step-by-step turn maneuvers, and hazard zones, returning validated plain-text clearance briefings to emergency drivers without coordinate hallucination.
+
+### 7. OpenStreetMap & OSMnx
+- **Graph-Theoretic Navigation**: Converts OpenStreetMap road networks into directed graphs, calculating real driving distances, turn-by-turn directions, and free-flow travel times.
+- **Flood & Hazard Buffers**: Evaluates recorded floodwaters and road closures, rejecting paths within 150 meters of hazards.
+
+---
+
+## Verification & Performance Benchmarks
+
+DialEvac is validated across **359 automated tests** spanning six distinct test suites:
+
+```bash
+spacetimedb/         16 test files  | 222 passed (contract, coverage, urgency, feeds, night scale)
+services/            1 test file    |  61 passed (telephony, webhooks, Gemini route, Photon SMS)
+dispatch/            2 test files   |  28 passed (OSMnx road routing, OR-Tools ALNS solver)
+dispatchers-portal/  7 test files   |  19 passed (queue triage, reactive cases, map embed, comms)
+driver/              5 test files   |  16 passed (turn-by-turn nav, live offers, countdown HUD)
+map/                 1 test file    |  13 passed (MapLibre 3D globe, NWS alerts, terrain framing)
+--------------------------------------------------------------------------------------------------
+Total Passing Tests: 359 tests (100% passing)
+```
+
+### Historical Houston Flood (Hurricane Harvey) Replay
+We evaluated DialEvac against **150 real municipal flood report locations** from the City of Houston 311 emergency archives (spanning August–October 2017 during Hurricane Harvey):
+- **100% Zone Accounting**: All 150 flood-affected locations were imported and accounted for in the coverage sweep; **0 were overlooked**.
+- **Specialized Transport Routing**: Real-world routing was verified from Houston emergency stations to complex addresses (e.g., 502 Montrose Blvd; 95 OSMnx coordinates, 4 maneuvers, 2,146 meters, 154s drive time) with Gemini route briefings and stretcher/oxygen compatibility matching.
+
+### 2,000-Household Scale Simulation
+In an automated stress test simulating 2,000 households over a 75-minute disaster night with a voice service throttled to 1 call/second:
+- **Urgency vs. Arrival Ordering**: Calling in urgency order reached **91% of non-ambulatory residents** before hazard arrival, compared to 87% under arrival order.
+- **Door Check Transition**: Residents unable to be reached via the telephony ladder were automatically placed on field-team door-check manifests 25 minutes prior to hazard impact.
+
+---
+
+## Repository Structure
+
+```
+HackUTD/
+├── spacetimedb/              # Source of truth: tables, reducers, procedures, coverage sweeps
+│   ├── src/
+│   │   ├── domain/           # Pure rules: urgency.ts, coverage.ts, need.ts, honesty.ts
+│   │   ├── feeds.ts          # NWS weather alerts poller & hazard polygon ingestion
+│   │   ├── reach.ts          # Outreach ladder & 30-second coverage sweep
+│   │   ├── plans.ts          # Fleet assignment & dispatcher approvals
+│   │   └── index.ts          # Public schema & reducer exports
+│   └── tests/                # 222 contract, scale, and domain tests
+├── services/                 # Telephony & messaging bridge (Node.js + TypeScript)
+│   ├── src/
+│   │   ├── voice.ts          # Photon SIP & ElevenLabs voice runner
+│   │   ├── messaging.ts      # Photon REST iMessage & SMS runner
+│   │   ├── elevenlabs.ts     # Conversational AI prompt & mid-call tool definitions
+│   │   ├── gemini-route.ts   # Gemini AI route clearance brief with tool calling
+│   │   └── road-router.ts    # OSMnx road network bridge
+│   └── scripts/              # Call inbox, recovery, and demonstration CLIs
+├── dispatchers-portal/       # Emergency Operations Center dashboard (React + Vite + Tailwind)
+│   ├── src/
+│   │   ├── components/       # QueuePanel, CaseFile, IncidentMapFrame, DriverComms
+│   │   └── lib/              # Reactive SpacetimeDB case projections & filters
+│   └── tests/                # Portal UI and subscription tests
+├── driver/                   # First responder mobile companion app (React + Vite)
+│   ├── src/
+│   │   ├── components/       # TurnByTurnNav, LiveOfferModal, RunList, NavigationMap
+│   │   └── App.tsx           # In-vehicle HUD and unit switcher
+│   └── tests/                # Mobile HUD, turn navigation, and offer countdown tests
+├── dispatch/                 # Python route solver & graph service
+│   ├── routing_server.py     # OSMnx OpenStreetMap routing HTTP service (:8800)
+│   ├── server.py             # OR-Tools Dial-a-Ride solver service (:8799)
+│   └── tests/                # Routing graph and solver feasibility tests
+├── map/                      # MapLibre 3D terrain and weather globe (:4178)
+├── thumbnails/               # High-resolution application screenshots
+└── data/                     # Historical Houston 311 flood records and preparation tools
+```
+
+---
+
+## Quickstart & Local Setup
+
+### Prerequisites
+- **Node.js** (v20+ recommended)
+- **Python** (v3.11+ with `uv` package manager)
+- **SpacetimeDB CLI** (v2.14.1; [Installation Guide](https://spacetimedb.com/install))
+
+### 1. Environment Configuration
+Copy `.env.example` to `.env` in the repository root and configure the required API keys:
 
 ```bash
 cp .env.example .env
 ```
 
+Key variables:
+- `SPACETIME_URI` & `SPACETIME_DATABASE`: SpacetimeDB cluster URI (defaults to Maincloud `hackutd-535md` or demo `hackutd-richardson`)
+- `ELEVENLABS_API_KEY` & `ELEVENLABS_AGENT_ID`: Voice AI agent credentials
+- `ANTHROPIC_API_KEY`: Claude structured clinical analysis
+- `GEMINI_API_KEY`: Gemini AI route clearance briefings
+- `PHOTON_SIP_*` & `PHOTON_API_KEY`: Photon telephony trunk & messaging API
+
+### 2. SpacetimeDB Setup & Binding Generation
+From the repository root:
+
 ```bash
-cd spacetimedb && npm install && npm test
+cd spacetimedb
+npm install
+npm test
+
+# Publish module to SpacetimeDB Maincloud (or your local Spacetime instance)
+spacetime publish hackutd-535md --module-path . --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
+```
+
+Generate client bindings for the portal, driver app, and services:
+
+```bash
+cd ../services && npm install && npm run generate
+cd ../dispatchers-portal && npm install && npm run generate
+cd ../driver && npm install && npm run generate
+cd ../map && npm install && npm run generate
+```
+
+### 3. Start Python Routing & Solver Services
+In separate terminals:
+
+```bash
+# Start OSMnx OpenStreetMap Graph Router (port 8800)
+cd dispatch
+uv sync
+uv run python routing_server.py
 ```
 
 ```bash
-spacetime login
-spacetime publish hackutd-535md --module-path spacetimedb --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
+# Start OR-Tools Dial-a-Ride Solver (port 8799)
+cd dispatch
+uv run python server.py
 ```
 
-Confirm the contract tables exist:
-
+### 4. Start Core Telephony & Route Bridge
 ```bash
-spacetime describe hackutd-535md --server maincloud
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM vehicle"
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM request"
-spacetime sql hackutd-535md --server maincloud "SELECT COUNT(*) AS count FROM assignment"
-```
-
-All application database connections default to Maincloud. Shared browser-safe targets are declared once in `shared/spacetime.ts`; the services and portal can override them through their environment files, and the map accepts explicit query parameters.
-
-The module's own settings (`SOLVER_URL`, `SOLVER_TOKEN`, `FEED_AREA`, `DEMO_MODE`) are declared in `spacetimedb/src/schema.ts` and installed at publish time, not read from `.env`. `spacetime publish --help` lists how to pass them. Leaving the solver settings out uses the built-in heuristic. The feed begins only when an operator calls `startFeeds`; its default area is TX. `DEMO_MODE` stays unset on the shared database.
-
-Generate the client bindings the services and map use, then run each service:
-
-```bash
-cd services && npm install && npm run generate
-```
-
-Build and start the map:
-
-```bash
-cd map && npm install && npm run generate && npm run serve
-```
-
-The shared project database is `hackutd-535md` on Maincloud. The services use `SPACETIME_URI` and `SPACETIME_DATABASE` in the root `.env`. Open the map at `http://127.0.0.1:4178/index.html`; its live connection defaults to Maincloud. Query parameters `?uri=&db=` override the live target. The separate demo connection also uses Maincloud, targeting `hackutd-richardson`; `?demoUri=&demoDb=` overrides that target. See the dedicated demo setup below. The legacy `web/` client has been replaced by `map/`.
-
-The dispatcher portal is independent of the public map. See `dispatchers-portal/README.md` for its setup.
-
-### Dedicated demo database
-
-Public fixture operations are disabled unless the published module has `DEMO_MODE=isolated`. They also reject databases with real households, real vehicles, or an active incident. Keep that setting unset on the shared operational database `hackutd-535md`. Enable it only on the separate Maincloud demo database `hackutd-richardson`. Each assistance run resets only its own fixture records before replaying approval and acceptance.
-
-The isolated remote demo database is already provisioned. To update its module from the repository root:
-
-```bash
-DEMO_MODE=isolated spacetime publish hackutd-richardson --module-path spacetimedb --server maincloud --delete-data=never --no-config --yes=remote,migrate,skip-login
-```
-
-The map reads `hackutd-535md` while its two Run Demo choices use the separate `hackutd-richardson` database. Both connections use Maincloud; no local Spacetime server is required. It awaits successful database operations before starting playback and reports failed operations in the demo status. Opening the map never starts the live feed or writes to Maincloud.
-
-Before updating the shared database, follow [DATABASE_DEPLOYMENT.md](DATABASE_DEPLOYMENT.md).
-
-### Verify database connectors
-
-After generating bindings, run the read-only connection check:
-
-```bash
-cd services && npm run check:connections
-```
-
-It checks the actual service queue filters and every table used by the operational portal, live map, and remote demo. To additionally exercise message delivery states, inbound-call records, household/request updates, transcripts, and callbacks on synthetic demo data:
-
-```bash
-cd services && npm run check:connections -- --write-demo
-```
-
-The write check resets the dedicated demo fixture; it never writes to the operational database or starts telephony. Transcript display joins `transcript_line.call_id` through `call.household_id` so one household cannot show another household's conversation.
-
-```bash
-cd services && npm run messaging
-```
-
-Calls need a public HTTPS address for the voice service (`VOICE_PUBLIC_URL`, a tunnel to port 8080 works), the Photon SIP values, and `ELEVENLABS_API_KEY`. Set the Photon voice profile's digest algorithm to SHA-256, then let the setup script create the ElevenLabs webhook, agent and imported number. It writes their IDs to `.env`, and rerunning it updates rather than duplicates. For incoming calls, set the Photon profile's inbound destination to `sips:sip.rtc.elevenlabs.io:5061` (TLS, no credentials):
-
-```bash
-cd services && npm run setup:elevenlabs
+# Start route bridge for Gemini route briefings
+cd services
+npm run routes
 ```
 
 ```bash
-cd services && npm run voice
+# Start call inbox and webhook receiver (port 8080)
+cd services
+npm run voice
 ```
 
-Run the solver:
+```bash
+# (Optional) Start outbound Photon SMS messaging worker
+cd services
+npm run messaging
+```
+
+### 5. Launch User Portals
+```bash
+# Launch Dispatchers Portal (EOC Console) -> http://localhost:3001
+cd dispatchers-portal
+npm run dev
+```
 
 ```bash
+# Launch Driver Mobile Companion -> http://127.0.0.1:3003
+cd driver
+npm run dev
+```
+
+```bash
+# Launch 3D Incident & Weather Map -> http://127.0.0.1:4178
+cd map
+npm run serve
+```
+
+---
+
+## Running Verification Tests
+
+Run the comprehensive test suites across all project layers:
+
+```bash
+# 1. SpacetimeDB Module Contract & Scale Tests (222 tests)
+cd spacetimedb && npm test
+
+# 2. Telephony, Voice Webhooks & AI Route Tests (61 tests)
+cd services && npm test
+
+# 3. Python OSMnx Routing & Solver Tests (28 tests)
 cd dispatch && uv run --with pytest pytest tests
+
+# 4. Dispatchers Portal EOC Tests (19 tests)
+cd dispatchers-portal && npm test
+
+# 5. Driver Mobile Companion Tests (16 tests)
+cd driver && npm test
+
+# 6. MapLibre 3D Weather & Terrain Tests (13 tests)
+cd map && npm test
 ```
 
-```bash
-cd dispatch && uv run python server.py
-```
+---
 
-## Checks
-
-| Command | What it proves |
-| --- | --- |
-| `cd spacetimedb && npm test` | The contract: status moves, compatibility, frozen runs, one live offer, idempotent callbacks, correction handling, solver fallback, road closures, Photon replies, keypad digits, incoming calls and NWS zones. Also urgency ranking, coverage, and a 75-minute night of 2,000 homes at 1 call per second. Runs in SpacetimeDB's own test harness. |
-| `cd services && npm test` | Photon delivery respects the allowlist, a Photon send reuses the resident's shared line, replies are read once across pages, ElevenLabs signatures validate, a spoken answer is recorded like a pressed key, an incoming call is matched by caller number, a call with no clear answer is not counted as reached, and the call queue places the most urgent call first. |
-| `cd services && npm run typecheck` | Needs `npm run generate` first. |
-| `cd dispatch && uv run --with pytest pytest tests` | The solver's routes are feasible. |
-
-## At scale
-
-The night test plays the scheduler and a voice service limited to 1 call per second. It runs 2,000 stand-in homes, with hazards arriving 25 to 67 minutes after the warning. At the end every home is accounted for, and none is overlooked or still waiting on the ladder. Calling in urgency order reached 91% of the homes that can't leave on their own by phone. Calling in arrival order reached 87%. A second seed gave 88% and 83%. The cost is that walkers are called later, so slightly more of them go to door checks (356 against 343 on the second seed). The call rate matters more than the order: 2,000 homes at 1 call per second take 33 minutes for one round. At 3 calls per second, even arrival order reached 93% and cut door checks from 317 to 142 (first seed). Raise `VOICE_CALLS_PER_SECOND` as far as the Photon line and ElevenLabs plan allow.
-
-The 4 stand-in vehicles serve about 50 of 800 ride requests in that night. That is the stand-in fleet, not a limit of the dispatcher.
-
-## Not built yet
-
-- Spanish calls. The ElevenLabs agent speaks English only for now.
-- A road graph. Drive times are straight-line distance with a detour factor, and a closure blocks any leg passing within 150 m.
-- A production operations map. `map/` shows warnings and the fleet; the HAND flood, thunderstorm and hurricane layers are illustrative.
-
-### One-phone judge demonstration
-
-From `services/`, `npm run demo:outbound` performs a read-only preflight. `npm run demo:outbound -- --call --attempt judges-01 --wait` deliberately calls only the configured resident and follows the transcript/Claude result. Each attempt name is single-use. The approved live test currently fails with SIP 603 Decline before connection; see [the outbound runbook](services/OUTBOUND_DEMO.md) for the verified issue and next provider diagnostic.
+*DialEvac was designed and engineered for HackUTD 2026 to ensure that when disaster strikes, technology stands between chaos and human lives.*

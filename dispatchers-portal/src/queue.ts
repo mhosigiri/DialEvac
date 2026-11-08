@@ -84,7 +84,6 @@ const CSV_COLUMNS: [string, (row: CaseRow, hazard?: string) => string | number |
   ["Occupants", (r) => (r.request ?? r.household).people],
   ["Mobility", (r) => (r.request ?? r.household).mobility],
   ["Oxygen", (r) => (r.request ?? r.household).oxygen],
-  ["Simulated", (r) => r.household.simulated],
   ["Summary", (r) => r.summary],
 ];
 

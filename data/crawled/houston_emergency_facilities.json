@@ -1,0 +1,92 @@
+[
+  {
+    "id": "shelter-grb",
+    "name": "George R. Brown Convention Center (Mega-Shelter)",
+    "kind": "shelter",
+    "address": "1001 Avenida De Las Americas, Houston, TX 77010",
+    "phone": "+17138538000",
+    "lat": 29.7523,
+    "lng": -95.3582,
+    "capacity": 10000,
+    "wheelchair_accessible": true,
+    "generator_backup": true,
+    "notes": "Primary mega-shelter activated during Hurricane Harvey and Beryl"
+  },
+  {
+    "id": "shelter-nrg",
+    "name": "NRG Center Evacuation Shelter",
+    "kind": "shelter",
+    "address": "1 NRG Park, Houston, TX 77054",
+    "phone": "+18326671400",
+    "lat": 29.6847,
+    "lng": -95.4107,
+    "capacity": 8000,
+    "wheelchair_accessible": true,
+    "generator_backup": true,
+    "notes": "Primary South Houston evacuation hub and Red Cross distribution point"
+  },
+  {
+    "id": "shelter-greenspoint",
+    "name": "Greenspoint Community Center Shelter",
+    "kind": "shelter",
+    "address": "16955 Northchase Dr, Houston, TX 77060",
+    "phone": "+12818742100",
+    "lat": 29.9482,
+    "lng": -95.411,
+    "capacity": 1200,
+    "wheelchair_accessible": true,
+    "generator_backup": true,
+    "notes": "North Houston flood evacuee staging center"
+  },
+  {
+    "id": "ops-transtar",
+    "name": "Houston TranStar Emergency Operations Center (EOC)",
+    "kind": "operations",
+    "address": "6922 Old Katy Rd, Houston, TX 77024",
+    "phone": "+17138813000",
+    "lat": 29.7801,
+    "lng": -95.4578,
+    "wheelchair_accessible": true,
+    "notes": "Regional transportation and emergency management command center"
+  },
+  {
+    "id": "transit-metro",
+    "name": "METRO Transit Emergency Dispatch Center",
+    "kind": "transit_dispatch",
+    "address": "1900 Main St, Houston, TX 77002",
+    "phone": "+17136354000",
+    "lat": 29.7505,
+    "lng": -95.3707,
+    "notes": "Coordinated paratransit and accessible bus rescue fleet"
+  },
+  {
+    "id": "medical-bentaub",
+    "name": "Harris Health Ben Taub Hospital Triage",
+    "kind": "medical",
+    "address": "1504 Taub Loop, Houston, TX 77030",
+    "phone": "+17138732000",
+    "lat": 29.7118,
+    "lng": -95.3948,
+    "notes": "Level 1 trauma triage for critical evacuations"
+  },
+  {
+    "id": "hotline-311",
+    "name": "City of Houston 311 Emergency Disaster Intake",
+    "kind": "hotline",
+    "address": "Houston City Hall, 901 Bagby St, Houston, TX 77002",
+    "phone": "+17138370311",
+    "lat": 29.7604,
+    "lng": -95.3698,
+    "notes": "Citywide service request intake and high-water dispatch line"
+  },
+  {
+    "id": "relief-unitedway",
+    "name": "United Way of Greater Houston 2-1-1 Center",
+    "kind": "relief_intake",
+    "address": "50 Waugh Dr, Houston, TX 77007",
+    "phone": "+17136852300",
+    "lat": 29.7645,
+    "lng": -95.397,
+    "notes": "Texas 2-1-1 referral hub for vulnerable & elderly residents"
+  }
+]

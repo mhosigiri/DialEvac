@@ -38,12 +38,12 @@ export function seedHoustonVoiceStory(ctx: Tx, hazard: string) {
   const rings = [[[-95.43, 29.74], [-95.36, 29.74], [-95.36, 29.79], [-95.43, 29.79], [-95.43, 29.74]]];
   const externalId = "demo-houston-catastrophe";
   const zone = ctx.db.zone.externalId.find(externalId);
-  const fields = { source: "simulated-houston", name: "Houston simulation", event: `${hazard} demo`, severity: "Simulated", rings: JSON.stringify(rings), active: true, at: ctx.timestamp,
-    headline: "Synthetic catastrophe for the Houston demonstration", issuedAt: ctx.timestamp, expiresAt: home.hazardAt, url: undefined, messageType: undefined, kind: "demo", geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX" };
+  const fields = { source: "simulated-houston", name: `Houston ${hazard}`, event: hazard, severity: "Unspecified", rings: JSON.stringify(rings), active: true, at: ctx.timestamp,
+    headline: `Houston ${hazard} response area`, issuedAt: ctx.timestamp, expiresAt: home.hazardAt, url: undefined, messageType: undefined, kind: "demo", geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX" };
   if (zone) ctx.db.zone.id.update({ ...zone, ...fields });
   else ctx.db.zone.insert({ id: 0n, externalId, ...fields });
-  const vehicleName = "Houston demo rescue unit";
-  if (![...ctx.db.vehicle.iter()].some(vehicle => vehicle.name === vehicleName)) ctx.db.vehicle.insert({ id: 0n, name: vehicleName, driverName: "Demo dispatcher", kind: "wheelchair-accessible van",
+  const vehicleName = "Houston rescue unit";
+  if (![...ctx.db.vehicle.iter()].some(vehicle => vehicle.name === vehicleName)) ctx.db.vehicle.insert({ id: 0n, name: vehicleName, driverName: "Rescue dispatch", kind: "wheelchair-accessible van",
     seats: 3, wheelchairSpaces: 1, stretcherSpaces: 0, crew: 2, lift: true, lat: 29.770, lng: -95.405, simulated: true });
   ctx.db.call.insert({ id: 0n, householdId: home.id, purpose: "survey", phase: "queued", attempt: 1, priority: urgencyOf(ctx, home),
     outcome: undefined, providerId: undefined, queuedAt: ctx.timestamp, endedAt: undefined });

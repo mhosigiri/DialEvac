@@ -235,7 +235,7 @@ export const DesignSystemShowcase: React.FC = () => {
               </Button>
             </div>
             <p style={{ fontSize: 12.5, color: "#9a9aa0", lineHeight: 1.55 }}>
-              Demo: “Dispatch to Unit 7 failed — radio timeout. Retry from the case card.”
+              “Dispatch to Unit 7 failed — radio timeout. Retry from the case card.”
             </p>
           </Card>
         </div>

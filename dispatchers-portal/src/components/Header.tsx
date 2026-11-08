@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import { Bell } from "lucide-react";
 import type { Assignment, Coverage, Vehicle, Zone } from "../module_bindings/types";
 import type { CaseRow } from "../lib/cases";
 import { isCleared } from "../queue";
@@ -14,6 +13,7 @@ import { CoverageBar } from "../design-system/CoverageBar";
 import type { CoverageSegment } from "../design-system/CoverageBar";
 import type { FeedTab } from "./EmergencyFeed";
 import { CopyIdentity } from "./OperatorIdentity";
+import { Notifications } from "./Notifications";
 
 interface HeaderProps {
   identity?: string;
@@ -27,6 +27,7 @@ interface HeaderProps {
   query: string;
   onQueryChange: (q: string) => void;
   onShowCritical: () => void;
+  onOpenCase: (householdId: bigint) => void;
   activeTab: FeedTab;
   onTabChange: (t: FeedTab) => void;
   onAssignNext: () => void;
@@ -99,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
   query,
   onQueryChange,
   onShowCritical,
+  onOpenCase,
   activeTab,
   onTabChange,
   onAssignNext,
@@ -171,29 +173,7 @@ export const Header: React.FC<HeaderProps> = ({
           />
         </div>
         <div style={{ flex: 1 }} />
-        <button
-          onClick={onShowCritical}
-          title="Show critical cases"
-          aria-label={`Show critical cases (${criticalCount})`}
-          style={{
-            position: "relative",
-            width: 40,
-            height: 40,
-            borderRadius: "12px",
-            background: "#1a1a1f",
-            border: "1px solid #26262c",
-            color: "#c2c2c9",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Bell className="w-4 h-4" />
-          {criticalCount > 0 && (
-            <span style={{ position: "absolute", top: 8, right: 9, width: 8, height: 8, borderRadius: 999, background: "#f87171" }} />
-          )}
-        </button>
+        <Notifications cases={cases} criticalCount={criticalCount} onOpenCase={onOpenCase} onShowCritical={onShowCritical} />
         <div className="flex items-center gap-2">
           <span
             className="flex items-center justify-center font-bold"

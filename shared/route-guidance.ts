@@ -1,3 +1,5 @@
+import { metersToSegment } from "./geo";
+
 export type RouteStep = { instruction: string; road: string; distanceMeters: number; durationSeconds: number; lat: number; lng: number };
 
 export function parseRouteSteps(value: unknown): RouteStep[] {
@@ -10,11 +12,17 @@ export function parseRouteSteps(value: unknown): RouteStep[] {
   });
 }
 
-export function routeMatchesLocations(route: { originLat: number; originLng: number; destinationLat: number; destinationLng: number }, origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
-  return route.originLat === origin.lat && route.originLng === origin.lng && route.destinationLat === destination.lat && route.destinationLng === destination.lng;
-}
+const ON_ROUTE_METERS = 250;
 
-export function drivingDirectionsUrl(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
-  const query = new URLSearchParams({ api: "1", origin: `${origin.lat},${origin.lng}`, destination: `${destination.lat},${destination.lng}`, travelmode: "driving" });
-  return `https://www.google.com/maps/dir/?${query}`;
+// A route stays valid while the responder drives it, so only leaving it or a moved pickup invalidates it.
+// Requested endpoints join the path because the road network may snap them up to 1 km from the geometry.
+export function routeMatchesLocations(
+  route: { originLat: number; originLng: number; destinationLat: number; destinationLng: number; points: readonly { lat: number; lng: number }[] },
+  responder: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+) {
+  if (route.destinationLat !== destination.lat || route.destinationLng !== destination.lng) return false;
+  const origin = { lat: route.originLat, lng: route.originLng };
+  const path = route.points.length ? [origin, ...route.points, destination] : [origin, origin];
+  return path.slice(1).some((point, i) => metersToSegment(responder, path[i], point) <= ON_ROUTE_METERS);
 }

@@ -8,11 +8,13 @@ export type CallbackRow = { id: bigint; householdId: bigint; state: string; line
 export type ConversationTranscript = { providerId: string; callId?: bigint; callbackId?: bigint; phone?: string; turns: { speaker: "agent" | "resident"; text: string }[] };
 export type LiveAssessment = { callId: bigint; providerId: string; choice: string; people?: number; oxygen?: boolean };
 export type CallHandoffUpdate = { callId: bigint; status: "requested" | "ringing" | "connected" | "failed"; targetLabel: string; failureReason?: string; detail?: string };
+import type { ResidentSpeechState } from "../../spacetimedb/src/domain/honesty";
 
 export interface Contract {
   readonly target?: { uri: string; database: string };
   household(id: bigint): HouseholdRow | undefined;
   call(id: bigint): CallRow | undefined;
+  residentState?(householdId: bigint): ResidentSpeechState | undefined;
   // Each fires for rows already in that state when the subscription applies, then for new ones.
   onQueuedMessage(handler: (row: MessageRow) => void): void;
   onQueuedCall(handler: (row: CallRow) => void): void;

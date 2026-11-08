@@ -36,13 +36,19 @@ export function insidePolygon(point: Point, rings: readonly (readonly (readonly 
   return outer !== undefined && insideRing(point, outer) && !holes.some((hole) => insideRing(point, hole));
 }
 
-// Meters from `p` to the segment a-b, on a flat projection around `a` (fine across a town).
-export function metersToSegment(p: Point, a: Point, b: Point) {
-  const k = Math.cos((a.lat * Math.PI) / 180);
-  const toXY = (q: Point) => [(q.lng - a.lng) * k * 111_320, (q.lat - a.lat) * 110_540] as const;
-  const [px, py] = toXY(p);
-  const [bx, by] = toXY(b);
-  const lengthSquared = bx * bx + by * by;
-  const s = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / lengthSquared));
-  return Math.hypot(px - s * bx, py - s * by);
+export { metersToSegment } from "../../../shared/geo";
+
+// Where a vehicle is after driving `driven` meters along `path`, and how far it has left to go.
+export function progressAlong(path: readonly Point[], driven: number) {
+  const lengths = path.slice(1).map((point, i) => metersBetween(path[i], point));
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  let left = Math.max(0, driven);
+  for (const [i, length] of lengths.entries()) {
+    if (left < length) {
+      const s = left / length, [a, b] = [path[i], path[i + 1]];
+      return { point: { lat: a.lat + (b.lat - a.lat) * s, lng: a.lng + (b.lng - a.lng) * s }, remainingMeters: total - Math.max(0, driven) };
+    }
+    left -= length;
+  }
+  return { point: path[path.length - 1], remainingMeters: 0 };
 }

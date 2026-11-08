@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DialEvac · Live Weather</title>
-<meta name="description" content="DialEvac live NWS weather and synthetic response demos on one MapLibre terrain map.">
+<meta name="description" content="DialEvac weather alerts and emergency response coordination on one terrain map.">
 <link rel="stylesheet" href="assets/vendor/maplibre-gl.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -38,6 +38,7 @@
 </style>
 <link rel="stylesheet" href="assets/embed.css">
 <script src="assets/embed.js"></script>
+<script src="assets/incident-editor.js"></script>
 </head>
 <body>
 <div id="map"></div><div id="fx"></div><canvas id="rain"></canvas>
@@ -52,11 +53,11 @@
   <div class="seg" id="modeSeg"><button data-m="auto" aria-pressed="true">Auto</button><button data-m="day" aria-pressed="false">Day</button><button data-m="night" aria-pressed="false">Night</button></div>
   <div class="sun" id="sun"></div>
   <h4>Map layers</h4><div class="chips" id="hazards"></div>
-  <h4>Run Demo</h4>
+  <h4>Incident response</h4>
   <div class="demo">
     <div class="demo-select"><button class="action" data-demo="tornado" aria-pressed="false">Richardson Tornado</button><button class="action" data-demo="hurricane" aria-pressed="false">Hurricane Aftermath</button></div>
-    <div id="demo-phase">Live Weather</div><div id="demo-db-status">demo connecting…</div>
-    <div class="actions"><button class="action primary" id="run-demo" disabled>Run Demo</button><button class="action" id="reset-demo" disabled>Reset</button><button class="action" id="return-live" disabled>Return to Live</button></div>
+    <div id="demo-phase">Live Weather</div><div id="demo-db-status">Response data connecting…</div>
+    <div class="actions"><button class="action primary" id="run-demo" disabled>Open incident</button><button class="action" id="reset-demo" disabled>Reset</button><button class="action" id="return-live" disabled>Return to Live</button></div>
     <div id="dispatcher-queue" class="queue" hidden></div><div id="ride-confirmation" class="confirmation" hidden></div>
   </div>
   <h4>Motion</h4><div class="seg" id="motionSeg"><button data-v="on" aria-pressed="true">On</button><button data-v="off" aria-pressed="false">Off</button></div>

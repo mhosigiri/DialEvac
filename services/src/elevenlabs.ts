@@ -1,7 +1,9 @@
 import { ElevenLabsClient, type ElevenLabs } from "@elevenlabs/elevenlabs-js";
 import { env } from "./env";
-import { SURVEY_INTRO } from "../../spacetimedb/src/domain/script";
+import { SPEECH, guardResidentTurn } from "../../spacetimedb/src/domain/honesty";
 import { assessmentToken } from "./live-assessment";
+import { voiceGuardContext } from "./voice-guard";
+import { withVoiceSafety } from "./voice-safety";
 
 // ElevenLabs runs the conversation on every call; Photon is the line it dials out on (SIP trunk).
 // The agent sorts what a resident says into the keypad's four choices, so a spoken answer lands in
@@ -14,9 +16,12 @@ export const elevenlabs = () => (client ??= new ElevenLabsClient());
 export type CallKind = "survey" | "callback";
 
 // Every dynamic variable the prompt names must be sent on every call, or the call fails to start.
-export type CallVariables = { kind: CallKind; call_id: string; callback_id: string; name: string };
+export type CallVariables = { kind: CallKind; call_id: string; callback_id: string; name: string; household_id?: string };
 
 export async function outboundCall(to: string, variables: CallVariables, firstMessage?: string) {
+  // A greeting can play while the phone is still connecting. Keep it neutral; all dispatch facts
+  // are resolved afresh by the blocking turn endpoint after the resident responds.
+  const greeting = guardResidentTurn(variables.kind === "callback" ? SPEECH.callbackFirst : firstMessage === SPEECH.demoFirst ? SPEECH.demoFirst : SPEECH.first).text;
   const result = await elevenlabs().conversationalAi.sipTrunk.outboundCall({
     agentId: env.elevenlabs.agentId(),
     agentPhoneNumberId: env.elevenlabs.phoneNumberId(),
@@ -24,7 +29,8 @@ export async function outboundCall(to: string, variables: CallVariables, firstMe
     conversationInitiationClientData: {
       dynamicVariables: { ...variables, ...(variables.kind === "survey" && /^\d+$/.test(variables.call_id)
         ? { secret__assessment_token: assessmentToken(env.elevenlabs.webhookSecret(), BigInt(variables.call_id)) } : {}) },
-      ...(firstMessage ? { conversationConfigOverride: { agent: { firstMessage } } } : {}),
+      customLlmExtraBody: { guard_context: voiceGuardContext(env.elevenlabs.webhookSecret(), variables) },
+      conversationConfigOverride: { agent: { firstMessage: greeting } },
     },
     telephonyCallConfig: { ringingTimeoutSecs: 30 },
   }, { maxRetries: 0, timeoutInSeconds: 45 });
@@ -91,7 +97,7 @@ export const endedOn = (terminationReason = "") => (/voicemail/i.test(terminatio
 const PROMPT = `You are the automated voice of a local emergency response line, calling during an active warning.
 You are calling {{name}}. This call's kind is "{{kind}}".
 
-If the kind is "callback": you already said the update. Answer short questions using only that update. Never promise times, vehicles or help you were not told about. Then say goodbye and end the call.
+If the kind is "callback": use the current approved status phrase supplied by the blocking output gate. Never reuse a previous turn's assignment or ETA. Then say goodbye and end the call.
 
 If the kind is "survey": find out, in as few turns as you can, which one of these is true:
 1. They can leave on their own.
@@ -99,7 +105,7 @@ If the kind is "survey": find out, in as few turns as you can, which one of thes
 3. They need a wheelchair-accessible ride.
 4. Someone must be lifted or carried out.
 Also ask how many people are in the home and whether anyone uses oxygen, if they don't say.
-Confirm their answer back in one sentence. If they can leave, tell them to leave now if it is safe. If they need help, say the request is recorded and someone will contact them; promise nothing else. Then end the call.
+Confirm their answer back in one sentence. If they can leave, tell them to leave only if it is safe. If they need help, acknowledge their request without claiming it is saved or promising a callback. Then end the call.
 
 Always: speak plainly and briefly, one question at a time. If they are confused or upset, stay calm and repeat the choices. If it is an emergency happening right now, tell them to hang up and call 911. Never give medical or legal advice.`;
 
@@ -108,18 +114,19 @@ export function agentConfig(webhookId: string) {
     name: "Worst Day response line",
     conversationConfig: {
       agent: {
-        firstMessage: `${SURVEY_INTRO} Are you able to leave your home on your own right now?`,
+        firstMessage: SPEECH.first,
+        maxConversationDurationMessage: SPEECH.goodbye,
         language: "en",
         dynamicVariables: { dynamicVariablePlaceholders: { kind: "survey", call_id: "", callback_id: "", name: "there" } },
         prompt: {
-          prompt: PROMPT,
+          prompt: withVoiceSafety(PROMPT),
           builtInTools: {
             endCall: { type: "system", name: "end_call", description: "", params: { systemToolType: "end_call" } },
             voicemailDetection: {
               type: "system",
               name: "voicemail_detection",
               description: "",
-              params: { systemToolType: "voicemail_detection", voicemailMessage: `${SURVEY_INTRO} We will call back shortly.` },
+              params: { systemToolType: "voicemail_detection", voicemailMessage: SPEECH.voicemail },
             },
           },
         },
@@ -137,8 +144,23 @@ export function agentConfig(webhookId: string) {
         people: { type: "integer", description: "How many people are in the home, if they said. Leave empty otherwise." },
         oxygen: { type: "boolean", description: "True if anyone in the home uses oxygen, false if they said no one does. Leave empty if not discussed." },
       },
-      overrides: { conversationConfigOverride: { agent: { firstMessage: true } } },
+      overrides: { customLlmExtraBody: true, conversationConfigOverride: { agent: { firstMessage: true } } },
       workspaceOverrides: { webhooks: { postCallWebhookId: webhookId, events: ["transcript", "call_initiation_failure"] } },
     },
+  } satisfies ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost;
+}
+
+// Apply this reviewable configuration only after the guard endpoint is deployed and reachable.
+// Backup models must be disabled: falling back to an unguarded model would bypass the release gate.
+export function guardedAgentConfig(base: ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost, publicUrl: string, secretId: string) {
+  const url = new URL(publicUrl);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !secretId.trim()) throw new Error("A public HTTPS guard URL and workspace secret ID are required");
+  return { ...base,
+    conversationConfig: { ...base.conversationConfig, agent: { ...base.conversationConfig?.agent, firstMessage: SPEECH.first, maxConversationDurationMessage: SPEECH.goodbye,
+      prompt: { ...base.conversationConfig?.agent?.prompt, llm: "custom-llm", backupLlmConfig: { preference: "disabled" },
+        customLlm: { url: `${publicUrl.replace(/\/$/, "")}/voice/guard/v1`, apiType: "chat_completions", requestHeaders: { "x-voice-guard-token": { secretId } } } },
+    } },
+    platformSettings: { ...base.platformSettings, overrides: { ...base.platformSettings?.overrides, customLlmExtraBody: true,
+      conversationConfigOverride: { ...base.platformSettings?.overrides?.conversationConfigOverride, agent: { ...base.platformSettings?.overrides?.conversationConfigOverride?.agent, firstMessage: true } } } },
   } satisfies ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost;
 }

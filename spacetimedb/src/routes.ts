@@ -23,7 +23,7 @@ export function queueDispatchRoute(ctx: Tx, assignmentId: bigint) {
   if (previous?.state === "pending" && routeMatchesLocations(previous, v, home) && ctx.timestamp.microsSinceUnixEpoch - previous.updatedAt.microsSinceUnixEpoch < BigInt(ROUTE_TIMEOUT_SECONDS) * 1_000_000n) return;
   const revision = (previous?.revision ?? 0n) + 1n;
   const row = { assignmentId, requestId: request.id, vehicleId: v.id, originLat: v.lat, originLng: v.lng, destinationLat: home.lat, destinationLng: home.lng,
-    points: [], distanceMeters: undefined, durationSeconds: undefined, source: "osrm", state: "pending", failureReason: undefined, revision, updatedAt: ctx.timestamp };
+    points: [], distanceMeters: undefined, durationSeconds: undefined, source: "osmnx", state: "pending", failureReason: undefined, revision, updatedAt: ctx.timestamp };
   if (previous) ctx.db.dispatchRoute.assignmentId.update(row); else ctx.db.dispatchRoute.insert(row);
   ctx.db.routeJob.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, 0), assignmentId, revision });
   ctx.db.routeTimeout.insert({ scheduledId: 0n, scheduledAt: runAt(ctx, ROUTE_TIMEOUT_SECONDS), assignmentId, revision });
@@ -45,15 +45,15 @@ export function commitRoadRoute(tx: Tx, snapshot: RouteRow, route: ReturnType<ty
   const assignment = tx.db.assignment.id.find(current.assignmentId), request = tx.db.request.id.find(current.requestId);
   const vehicle = tx.db.vehicle.id.find(current.vehicleId), home = request && tx.db.household.id.find(request.householdId);
   if (!assignment || !(LIVE_ASSIGNMENT as readonly string[]).includes(assignment.status) || request?.status === "closed") failureReason = "Assignment or request is no longer active";
-  else if (!vehicle || !home || vehicle.lat !== current.originLat || vehicle.lng !== current.originLng || home.lat !== current.destinationLat || home.lng !== current.destinationLng) failureReason = "Responder or resident location changed; request a fresh route";
-  else if (route && (metersBetween(route.points[0], vehicle) > 1000 || metersBetween(route.points.at(-1)!, home) > 1000)) failureReason = "Road route does not reach the requested locations";
+  else if (!vehicle || !home || !routeMatchesLocations({ ...current, points: route?.points ?? current.points }, vehicle, home)) failureReason = "Responder or resident location changed; request a fresh route";
+  else if (route && (metersBetween(route.points[0], { lat: current.originLat, lng: current.originLng }) > 1000 || metersBetween(route.points.at(-1)!, home) > 1000)) failureReason = "Road route does not reach the requested locations";
   else if (route && [...tx.db.roadClosure.active.filter(true)].some(closure => route.points.slice(1).some((point, i) => metersToSegment(closure, route.points[i], point) < 150))) failureReason = "Road route intersects a reported closure";
   tx.db.dispatchRoute.assignmentId.update({ ...current, state: route && !failureReason ? "ready" : "failed", points: failureReason ? [] : route?.points ?? [],
     distanceMeters: failureReason ? undefined : route?.distanceMeters, durationSeconds: failureReason ? undefined : route?.durationSeconds,
     failureReason: failureReason || (route ? undefined : "Routing provider unavailable"), updatedAt: tx.timestamp });
 }
 
-// The external route-only worker can supply OSRM geometry when the native HTTP environment
+// The external route-only worker can supply OSMnx geometry when the native HTTP environment
 // cannot reach the provider. It cannot revive stale/closed routes or skip module validation.
 export const recordDispatchRoute = spacetimedb.reducer({ assignmentId: t.u64(), revision: t.u64(), points: t.array(routePoint),
   distanceMeters: t.option(t.f64()), durationSeconds: t.option(t.f64()), failureReason: t.option(t.string()) },
@@ -90,16 +90,21 @@ export const calculateDispatchRoute = spacetimedb.procedure({ onSchedule: routeJ
   requireInternal(ctx);
   const snapshot = ctx.withTx(tx => tx.db.dispatchRoute.assignmentId.find(arg.assignmentId));
   if (!snapshot || snapshot.revision !== arg.revision || snapshot.state !== "pending") return {};
+  // Maincloud cannot reach a developer's loopback server; the route bridge handles
+  // jobs unless a publicly reachable OSMnx service is configured on this module.
+  if (!ctx.env.ROUTER_URL) return {};
   let route: ReturnType<typeof parseRoadRoute> | undefined;
   let failureReason: string | undefined;
   try {
-    const root = ctx.env.ROUTER_URL || "https://router.project-osrm.org";
+    const root = ctx.env.ROUTER_URL;
     const url = `${root.replace(/\/$/, "")}/route/v1/driving/${snapshot.originLng},${snapshot.originLat};${snapshot.destinationLng},${snapshot.destinationLat}?overview=full&geometries=geojson&steps=false`;
     const response = ctx.http.fetch(url, { timeout: TimeDuration.fromMillis(5000), headers: { Accept: "application/json", "User-Agent": "HackUTD-Houston-Demo/1.0" } });
     if (!response.ok) throw new Error(`Routing provider returned HTTP ${response.status}`);
-    route = parseRoadRoute(response.json());
+    const raw = response.json() as { source?: string };
+    if (raw.source !== "osmnx") throw new Error("Routing provider did not return an OSMnx route");
+    route = parseRoadRoute(raw);
   } catch (error) {
-    console.error("[routing] native OSRM fetch failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+    console.error("[routing] native OSMnx fetch failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));
     failureReason = "Routing provider unavailable or no valid road route returned";
   }
   ctx.withTx(tx => commitRoadRoute(tx, snapshot, route, failureReason));

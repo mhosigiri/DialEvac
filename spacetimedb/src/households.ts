@@ -7,6 +7,7 @@ import { ESCALATIONS } from "./domain/status";
 import { startReachLadder, sweepCoverage } from "./reach";
 import { SURVEY_ASK } from "./domain/script";
 import { requireOperator, requireRecordEditor, requireService } from "./authorization";
+import { fictionalContact, validateRider, validateZone } from "../../shared/incident";
 
 // Households: the rider list, the warning zone, and the record the voice agent and Photon replies
 // fill in. Every record change logs a correction and runs syncRequest, so a changed need reaches
@@ -36,6 +37,14 @@ const known = (row: Known): Known =>
 
 export const importRiders = spacetimedb.reducer({ riders: t.array(riderRow) }, (ctx, { riders }) => {
   requireOperator(ctx);
+  if (!riders.length || riders.length > 2000) throw new SenderError("Import 1–2,000 riders at a time");
+  const ids = new Set<string>();
+  for (const rider of riders) {
+    try { validateRider(rider); } catch (error) { throw new SenderError((error as Error).message); }
+    if (ids.has(rider.riderId)) throw new SenderError("Duplicate rider ID in import");
+    ids.add(rider.riderId);
+    if (ctx.env.DEMO_MODE === "isolated" && !fictionalContact(rider.phone)) throw new SenderError("The isolated demo accepts fictional 555 contacts only");
+  }
   for (const rider of riders) {
     const existing = ctx.db.household.riderId.find(rider.riderId);
     const fields = {
@@ -50,9 +59,12 @@ export const importRiders = spacetimedb.reducer({ riders: t.array(riderRow) }, (
       mobility: isMobility(rider.mobility) ? rider.mobility : "walks",
       assistance: isAssistance(rider.assistance) ? rider.assistance : "none",
     };
-    if (existing) ctx.db.household.id.update({ ...existing, ...fields });
-    else insertHousehold(ctx, { ...fields, simulated: false });
+    if (existing) syncRequest(ctx, ctx.db.household.id.update({ ...existing, ...fields }));
+    else insertHousehold(ctx, { ...fields, simulated: ctx.env.DEMO_MODE === "isolated" });
   }
+  const zone = ctx.db.zone.externalId.find("operator-zone");
+  if (zone?.active) applyZone(ctx, JSON.parse(zone.rings));
+  sweepCoverage(ctx);
   audit(ctx, "riders", `imported ${riders.length} riders`);
 });
 
@@ -92,9 +104,16 @@ export function applyZone(tx: Tx, rings: [number, number][][]) {
 
 export const setZone = spacetimedb.reducer({ ringsJson: t.string() }, (ctx, { ringsJson }) => {
   requireOperator(ctx);
-  const rings = JSON.parse(ringsJson) as [number, number][][];
-  if (!Array.isArray(rings) || !Array.isArray(rings[0])) throw new SenderError("expected GeoJSON polygon coordinates");
+  let rings: [number, number][][];
+  try { rings = validateZone(JSON.parse(ringsJson)); } catch (error) { throw new SenderError((error as Error).message); }
+  const previous = ctx.db.zone.externalId.find("operator-zone");
+  const fields = { source: "manual", name: "Operator outreach area", event: ctx.db.control.id.find(0)?.hazard ?? "flood", severity: "Operator defined",
+    rings: JSON.stringify(rings), active: true, at: ctx.timestamp, headline: "Operator-drawn outreach boundary",
+    issuedAt: undefined, expiresAt: undefined, url: undefined, messageType: undefined, kind: "manual", geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX" };
+  if (previous) ctx.db.zone.id.update({ ...previous, ...fields });
+  else ctx.db.zone.insert({ id: 0n, externalId: "operator-zone", ...fields });
   const entered = applyZone(ctx, rings);
+  sweepCoverage(ctx);
   audit(ctx, "zone", `warning zone drawn: ${entered} homes entered`);
 });
 

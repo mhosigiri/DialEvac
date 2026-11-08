@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { DbConnection } from "../src/module_bindings";
@@ -24,6 +24,7 @@ const persisted = existsSync(authPath) ? JSON.parse(readFileSync(authPath, "utf8
 const token = process.env.SPACETIME_DEMO_SERVICE_TOKEN || persisted.service?.token;
 assert(token, "An existing granted demo service token is required");
 const directory = fileURLToPath(new URL("../.spacetime/call-inbox/", import.meta.url));
+mkdirSync(directory, { recursive: true, mode: 0o700 });
 const target = { uri, database };
 let connection: DbConnection | undefined;
 let stopping = false;
@@ -46,7 +47,7 @@ function openDatabase() {
     const c = DbConnection.builder().withUri(uri).withDatabaseName(database).withToken(token)
       .onConnect(conn => conn.subscriptionBuilder().onApplied(() => { clearTimeout(timer); resolve(conn); })
         .onError(() => { clearTimeout(timer); conn.disconnect(); reject(new Error("Call inbox subscription failed")); })
-        .subscribe(["household", "call", "call_record", "call_analysis"].map(table => `SELECT * FROM ${table}`)))
+        .subscribe(["household", "call", "call_record", "call_analysis", "request", "assignment", "vehicle", "control", "call_handoff"].map(table => `SELECT * FROM ${table}`)))
       .onConnectError(() => { clearTimeout(timer); reject(new Error("Call inbox connection failed")); })
       .onDisconnect(() => { if (connection === c) connection = undefined; }).build();
   });
@@ -118,7 +119,12 @@ const server = createServer(db, { onWebhook: async event => {
   const id = event.data.conversation_id;
   if (!id) throw new Error("Conversation id missing");
   await spoolConversation(directory, id, event);
-}, capabilities: { transcriptIngestion: true, claudeAnalysis: true, outboundEnabled: false } });
+}, capabilities: { transcriptIngestion: true, claudeAnalysis: true, outboundEnabled: false }, readiness: () => {
+  let durableStorage = false;
+  try { accessSync(directory, constants.W_OK); durableStorage = true; } catch { /* fail readiness */ }
+  const checks = { database: Boolean(connection?.isActive), durableStorage, analysisConfigured: Boolean(process.env.ANTHROPIC_API_KEY), stopping: !stopping };
+  return { ready: Object.values(checks).every(Boolean), checks };
+} });
 
 if (!process.argv.includes("--once")) server.listen(env.voice.port, () => console.log(`[call-inbox] listening on :${env.voice.port}; ${database}; outbound disabled`));
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => { stopping = true; server.close(); connection?.disconnect(); });

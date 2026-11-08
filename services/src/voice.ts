@@ -4,6 +4,8 @@ import { endedOn, failureOutcome, outboundCall, surveyAnswer, verifiedEvent, typ
 import type { CallbackRow, CallRow, Contract, HouseholdRow, ConversationTranscript } from "./contract";
 import { recordLiveAssessment, recordLiveHandoff } from "./live-assessment";
 import { demoContacts } from "./demo-handoff";
+import { authenticGuardHeader, guardedCompletion, proposeVoiceTurn, type GuardChat, type TurnProposer } from "./voice-guard";
+import { guardResidentTurn } from "../../spacetimedb/src/domain/honesty";
 
 // The voice service. Places queued survey calls and pending callbacks at a paced rate from the
 // Photon number, where an ElevenLabs agent holds the conversation, and takes each one's result back
@@ -43,9 +45,9 @@ export type Dialer = {
 };
 
 export const photonDialer: Dialer = {
-  survey: (call, home) => outboundCall(home.phone, { kind: "survey", call_id: String(call.id), callback_id: "", name: home.name }).then(() => undefined),
+  survey: (call, home) => outboundCall(home.phone, { kind: "survey", call_id: String(call.id), callback_id: "", household_id: String(home.id), name: home.name }).then(() => undefined),
   callback: (cb, home) =>
-    outboundCall(home.phone, { kind: "callback", call_id: "", callback_id: String(cb.id), name: home.name }, cb.line).then(() => undefined),
+    outboundCall(home.phone, { kind: "callback", call_id: "", callback_id: String(cb.id), household_id: String(home.id), name: home.name }, cb.line).then(() => undefined),
 };
 
 export function startRunners(db: Contract, enqueue: (priority: number, job: () => Promise<void>) => void, dialer: Dialer) {
@@ -70,6 +72,7 @@ export function startRunners(db: Contract, enqueue: (priority: number, job: () =
     if (!home || isFictional(home.phone)) return;
     enqueue(CALLBACK_PRIORITY, async () => {
       if (!mayContact(home.phone)) return db.markCallback(callback.id, "unanswered");
+      if (guardResidentTurn(callback.line, db.residentState?.(home.id)).blocked) return db.markCallback(callback.id, "unanswered");
       await db.markCallback(callback.id, "placed");
       await dialer.callback(callback, home).catch((error: unknown) => {
         console.error("[voice] callback failed", error);
@@ -140,11 +143,34 @@ async function readBody(req: http.IncomingMessage, limit = Infinity) {
   return Buffer.concat(chunks).toString();
 }
 
-export function createServer(db: Contract, options: { onWebhook?: (event: WebhookEvent) => Promise<void>; capabilities?: Record<string, unknown> } = {}) {
+export type Readiness = { ready: boolean; checks: Record<string, boolean> };
+
+export function createServer(db: Contract, options: { onWebhook?: (event: WebhookEvent) => Promise<void>; capabilities?: Record<string, unknown>; readiness?: () => Readiness; proposeTurn?: TurnProposer } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (req.method === "GET" && url.pathname === "/health") return void res.writeHead(200).end("ok");
-    if (req.method === "GET" && url.pathname === "/capabilities") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ liveAssessment: true, ...db.target, ...options.capabilities }));
+    if (req.method === "GET" && url.pathname === "/ready") {
+      const state = options.readiness?.() ?? { ready: false, checks: { readinessConfigured: false } };
+      return void res.writeHead(state.ready ? 200 : 503, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(state));
+    }
+    if (req.method === "GET" && url.pathname === "/capabilities") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ liveAssessment: true, honestyGuard: "blocking-template-gate", ...db.target, ...options.capabilities }));
+    if (req.method === "POST" && ["/voice/guard/v1", "/voice/guard/v1/chat/completions"].includes(url.pathname)) {
+      const supplied = req.headers["x-voice-guard-token"];
+      if (!authenticGuardHeader(process.env.VOICE_GUARD_TOKEN, typeof supplied === "string" ? supplied : undefined)) return void res.writeHead(401).end();
+      let body: GuardChat;
+      try { body = JSON.parse(await readBody(req, 256_000)); } catch { return void res.writeHead(400).end(); }
+      try {
+        let transfers: string[] = [];
+        try { transfers = [demoContacts(env.allowlist).dispatcher]; } catch { /* No configured human destination. */ }
+        const turn = await guardedCompletion(db, body, env.elevenlabs.webhookSecret(), options.proposeTurn ?? proposeVoiceTurn, transfers);
+        const base = { id: "guarded-turn", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "blocking-template-gate" };
+        const delta = { role: "assistant", content: turn.content, ...(turn.tool_calls ? { tool_calls: turn.tool_calls.map((tool, index) => ({ index, ...tool })) } : {}) };
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+        res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
+        res.end(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: turn.tool_calls ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`);
+      } catch { res.writeHead(503).end(); }
+      return;
+    }
     if (req.method === "POST" && ["/elevenlabs/assessment", "/elevenlabs/handoff"].includes(url.pathname)) {
       let body: unknown;
       try { body = JSON.parse(await readBody(req, 16_384)); } catch { return void res.writeHead(400).end(); }

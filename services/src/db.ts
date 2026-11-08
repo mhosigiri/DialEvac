@@ -1,6 +1,7 @@
 import { DbConnection } from "./module_bindings";
 import { env } from "./env";
 import type { CallbackRow, CallRow, Contract, MessageRow } from "./contract";
+import { isRequestStatus } from "../../spacetimedb/src/domain/status";
 
 // The one file that touches the generated bindings (`npm run generate` writes ./module_bindings
 // from the module). Everything else goes through Contract.
@@ -10,6 +11,11 @@ export const SERVICE_QUERIES = [
   "SELECT * FROM message WHERE state = 'queued'",
   "SELECT * FROM call WHERE phase != 'ended'",
   "SELECT * FROM callback WHERE state = 'pending'",
+  "SELECT * FROM request",
+  "SELECT * FROM assignment",
+  "SELECT * FROM vehicle",
+  "SELECT * FROM control",
+  "SELECT * FROM call_handoff",
 ];
 
 export function connect(): Promise<Contract> {
@@ -44,6 +50,20 @@ export function contractFor(conn: DbConnection, target?: { uri: string; database
     target,
     household: (id) => db.household.id.find(id) ?? undefined,
     call: (id) => db.call.id.find(id) ?? undefined,
+    residentState: householdId => {
+      if (!conn.isActive) throw new Error("Resident state is unavailable while disconnected");
+      const home = db.household.id.find(householdId);
+      if (!home) return undefined;
+      const request = db.request.householdId.find(householdId);
+      const assignment = request && [...db.assignment.requestId.filter(request.id)].find(a => a.status === "accepted");
+      const vehicle = assignment && db.vehicle.id.find(assignment.vehicleId);
+      const callIds = new Set([...db.call.householdId.filter(householdId)].map(c => c.id));
+      const handoff = [...db.callHandoff.iter()].filter(h => callIds.has(h.callId)).sort((a, b) => Number(b.updatedAt.toMillis() - a.updatedAt.toMillis()))[0];
+      return { requestStatus: request && isRequestStatus(request.status) ? request.status : undefined,
+        ride: vehicle && assignment ? { driverName: vehicle.driverName, vehicleKind: vehicle.kind, crew: vehicle.crew, etaMinutes: request?.etaMinutes ?? assignment.etaMinutes } : null,
+        canLeave: home.canLeave, assessmentRecorded: home.reach === "reached", warningActive: !!db.control.id.find(0)?.warningAt,
+        handoffStatus: handoff?.status };
+    },
     onQueuedMessage(handler) {
       for (const row of db.message.iter()) if (row.state === "queued") handler(row as MessageRow);
       db.message.onInsert((_ctx, row) => row.state === "queued" && handler(row as MessageRow));

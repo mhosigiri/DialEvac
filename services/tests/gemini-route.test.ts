@@ -34,7 +34,7 @@ test("Gemini cannot substitute coordinates, and a failed summary keeps verified 
 });
 
 test("road directions retain only the router's actual maneuvers and street names", async () => {
-  const raw = { code: "Ok", routes: [{ distance: 1400, duration: 200, geometry: { type: "LineString", coordinates: [[origin.lng, origin.lat], [destination.lng, destination.lat]] }, legs: [{ steps: [
+  const raw = { code: "Ok", source: "osmnx", routes: [{ distance: 1400, duration: 200, geometry: { type: "LineString", coordinates: [[origin.lng, origin.lat], [destination.lng, destination.lat]] }, legs: [{ steps: [
     { name: "Test Street", distance: 1400, duration: 200, maneuver: { type: "turn", modifier: "right", location: [origin.lng, origin.lat] } },
     { name: "", distance: 0, duration: 0, maneuver: { type: "arrive", location: [destination.lng, destination.lat] } },
   ] }] }] };

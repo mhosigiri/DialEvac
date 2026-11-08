@@ -7,7 +7,8 @@ import { startReachLadder, sweepCoverage } from "./reach";
 import { requestReplan } from "./dispatch";
 import { writePlan } from "./plans";
 import { isHazard, timingForHazard } from "./domain/hazard";
-import { metersBetween } from "./domain/geo";
+import { metersBetween, progressAlong, type Point } from "./domain/geo";
+import { routeMatchesLocations } from "../../shared/route-guidance";
 import { requireDemoDatabase } from "./demo-guard";
 import { requireInternal, requireOperator } from "./authorization";
 import { MOBILITIES, vehicleCanServe } from "./domain/need";
@@ -78,8 +79,8 @@ export function seedTown(ctx: Tx, homes: number) {
     const meters = 300 + ctx.random() * 2500;
     insertHousehold(ctx, {
       riderId: `sim-${ctx.db.household.count() + 1n}`,
-      name: `Simulated home ${i + 1}`,
-      address: `${100 + i} Stand-in St`,
+      name: `Household ${i + 1}`,
+      address: `${100 + i} Greenhaven Dr`,
       lat: c.originLat + (Math.sin(angle) * meters) / 110_540,
       lng: c.originLng + (Math.cos(angle) * meters) / (111_320 * Math.cos((c.originLat * Math.PI) / 180)),
       phone: `+1555${String(1000000 + i).slice(-7)}`,
@@ -99,7 +100,7 @@ export function seedTown(ctx: Tx, homes: number) {
     for (const v of fleet) ctx.db.vehicle.insert({ id: 0n, ...v, lat: c.originLat - 0.03, lng: c.originLng - 0.03, simulated: true });
   }
   if (ctx.db.shelter.count() === 0n) {
-    ctx.db.shelter.insert({ id: 0n, name: "Stand-in shelter", lat: c.originLat - 0.04, lng: c.originLng - 0.04, capacity: 500 });
+    ctx.db.shelter.insert({ id: 0n, name: "Richardson community shelter", lat: c.originLat - 0.04, lng: c.originLng - 0.04, capacity: 500 });
   }
   audit(ctx, "seed", `stand-in town: ${homes} homes, ${fleet.length} vehicles, 1 shelter`);
 }
@@ -129,9 +130,9 @@ export function seedTornadoIncident(ctx: Tx, activateOperations = true) {
   const rings = warningAreaAround(c.originLat, c.originLng);
   const zone = ctx.db.zone.externalId.find(TORNADO_ZONE);
   const zoneRow = {
-    source: "stand-in", name: "Simulated tornado warning", event: "Tornado Warning", severity: "Extreme",
+    source: "stand-in", name: "Richardson tornado warning", event: "Tornado Warning", severity: "Extreme",
     rings: JSON.stringify(rings), active: true, at: ctx.timestamp,
-    headline: "Simulated tornado warning near UTD", issuedAt: ctx.timestamp, expiresAt: undefined,
+    headline: "Tornado warning near UTD", issuedAt: ctx.timestamp, expiresAt: undefined,
     url: undefined, messageType: "Alert", kind: "simulated",
     geometryJson: JSON.stringify({ type: "Polygon", coordinates: rings }), area: "TX",
   };
@@ -141,7 +142,7 @@ export function seedTornadoIncident(ctx: Tx, activateOperations = true) {
   if (!home) {
     home = insertHousehold(ctx, {
       riderId: TORNADO_RIDER,
-      name: "Simulated wheelchair household",
+      name: "Tornado Ave household",
       address: "1 Tornado Ave",
       lat: c.originLat + 0.008,
       lng: c.originLng + 0.004,
@@ -227,7 +228,18 @@ function standInDrivers(tx: Tx) {
   }
 }
 
-// Straight-line driving toward each vehicle's next accepted pickup. The road graph replaces this.
+// Progress comes from elapsed time because a route can double back on itself, where the
+// vehicle's position alone cannot say which way along the road it is heading.
+function roadProgress(tx: Tx, v: Point, assignment: { id: bigint; decidedAt?: { toMillis(): bigint } }, home: Point) {
+  const route = tx.db.dispatchRoute.assignmentId.find(assignment.id);
+  if (route?.state !== "ready" || !routeMatchesLocations(route, v, home)) return undefined;
+  // Vehicles only move once the incident is running, so time spent waiting for it is not distance driven.
+  const startedMs = Math.max(Number(route.updatedAt.toMillis()), Number(assignment.decidedAt?.toMillis() ?? 0), Number(control(tx).warningAt?.toMillis() ?? 0));
+  const driven = ((nowMs(tx) - startedMs) / 1000) * VEHICLE_METERS_PER_SECOND;
+  return progressAlong([{ lat: route.originLat, lng: route.originLng }, ...route.points, home], driven);
+}
+
+// Each vehicle drives to its next accepted pickup: along its road route, or straight there without one.
 function moveVehicles(tx: Tx) {
   for (const v of tx.db.vehicle.iter()) {
     const next = [...tx.db.assignment.vehicleId.filter(v.id)].filter((a) => a.status === "accepted").sort((a, b) => a.stopOrder - b.stopOrder)[0];
@@ -243,9 +255,11 @@ function moveVehicles(tx: Tx) {
       tx.db.assignment.id.update({ ...next, status: "completed", decidedAt: tx.timestamp });
       continue;
     }
+    const road = roadProgress(tx, v, next, home);
     const step = Math.min(1, (VEHICLE_METERS_PER_SECOND * TICK_SECONDS) / distance);
-    tx.db.vehicle.id.update({ ...v, lat: v.lat + (home.lat - v.lat) * step, lng: v.lng + (home.lng - v.lng) * step });
-    const eta = Math.max(1, Math.ceil((distance - VEHICLE_METERS_PER_SECOND) / VEHICLE_METERS_PER_SECOND / 60));
+    tx.db.vehicle.id.update({ ...v, ...(road?.point ?? { lat: v.lat + (home.lat - v.lat) * step, lng: v.lng + (home.lng - v.lng) * step }) });
+    const remaining = road?.remainingMeters ?? distance;
+    const eta = Math.max(1, Math.ceil((remaining - VEHICLE_METERS_PER_SECOND) / VEHICLE_METERS_PER_SECOND / 60));
     if (requestStatus(request) === "driver_accepted") moveRequest(tx, request, "en_route", next, { etaMinutes: eta });
     else tx.db.request.id.update({ ...request, etaMinutes: eta });
   }

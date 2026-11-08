@@ -20,7 +20,7 @@ export type Vehicle = NonNullable<ReturnType<Tx["db"]["vehicle"]["id"]["find"]>>
 export type Control = NonNullable<ReturnType<Tx["db"]["control"]["id"]["find"]>>;
 
 export const CONTROL_ID = 0;
-export const OFFER_SECONDS = 120;
+export { OFFER_SECONDS } from "../../shared/offer-timing";
 
 export const nowMs = (tx: Tx) => Number(tx.timestamp.toMillis());
 export const at = (ms: number) => new Timestamp(BigInt(Math.round(ms)) * 1000n);

@@ -122,7 +122,7 @@ const WX = (() => {
       const src = map.getSource('strikes'); if (src) src.setData(WX.strikeFC(t));
       const c = map.getCenter().toArray(), dbz = WX.dbzAt(c), inside = map.getZoom() > 10.5 ? Math.max(0, Math.min(1, (dbz - 18) / 35)) : 0;
       WX.rain(map, Math.max(inside, WX.extraRain || 0), st.motion, mode === 'night');
-      return `Thunderstorm · max ${Math.round(WX.maxDbz())} dBZ · ${WX.strikesTotal()} strikes/min · ${dbz > 18 ? 'raining here' : 'dry here'} · simulated radar`;
+      return `Thunderstorm · max ${Math.round(WX.maxDbz())} dBZ · ${WX.strikesTotal()} strikes/min · ${dbz > 18 ? 'raining here' : 'dry here'}`;
     },
   });
 })();

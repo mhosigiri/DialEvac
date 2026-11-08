@@ -11,10 +11,13 @@ import { EmptyState } from "../design-system/EmptyState";
 import { ACCOUNT, CaseActions, words } from "./EmergencyFeed";
 import { Facts, Quiet, Section, clock, millis } from "./CaseFileParts";
 import { HumanHandoff, ResidentNotice, RoadRoute } from "./CaseCoordination";
+import { DriverComms } from "./DriverComms";
+import type { Vehicle } from "../module_bindings/types";
 
 interface CaseFileProps {
   row: CaseRow;
   zone?: Zone;
+  vehicles?: readonly Vehicle[];
   calls: readonly Call[];
   messages: readonly Message[];
   corrections: readonly Correction[];
@@ -36,8 +39,8 @@ type Contact =
 const OPEN_CALL = ["queued", "ringing", "live"];
 
 function callLine(call: Call) {
-  const parts = [`${words(call.purpose)} call`, `attempt ${call.attempt}`, words(call.phase)];
-  if (call.outcome) parts.push(words(call.outcome));
+  const parts = [`${words(call.purpose.replace(/^demo-/, ""))} call`, `attempt ${call.attempt}`, words(call.phase)];
+  if (call.outcome) parts.push(words(call.outcome.replace(/^simulated_/, "")));
   return parts.join(" · ");
 }
 
@@ -46,6 +49,7 @@ export const CASE_FILE_WIDTH = 460;
 export const CaseFile: React.FC<CaseFileProps> = ({
   row,
   zone,
+  vehicles = [],
   calls,
   messages,
   corrections,
@@ -78,6 +82,15 @@ export const CaseFile: React.FC<CaseFileProps> = ({
   const changes = useMemo(() => corrections.filter((c) => c.householdId === household.id), [corrections, household.id]);
   const openCall = homeCalls.find((c) => OPEN_CALL.includes(c.phase));
   const send = (command: Command) => onCommand(household.id, command);
+  const directions = useRef<HTMLDivElement>(null);
+  const showDirections = () => {
+    if (!assignment) return;
+    const panel = scroller.current, target = directions.current;
+    if (panel && target) panel.scrollTo({ top: panel.scrollTop + target.getBoundingClientRect().top - panel.getBoundingClientRect().top, behavior: "smooth" });
+    if (!route || route.state !== "ready" || !match || route.originLat !== match.vehicle.lat || route.originLng !== match.vehicle.lng || route.destinationLat !== household.lat || route.destinationLng !== household.lng) {
+      send({ kind: "route", assignmentId: assignment.id });
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -121,7 +134,6 @@ export const CaseFile: React.FC<CaseFileProps> = ({
             {household.address} · {household.phone}
           </p>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {household.simulated && <Badge tone="neutral">Simulated</Badge>}
             <Badge tone={ACCOUNT[account].tone}>{ACCOUNT[account].label}</Badge>
             {openCall && (
               <Badge tone={openCall.phase === "live" ? "danger" : "warning"} dot>
@@ -164,7 +176,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        <PickupLocation resident={household} responder={assignment ? match?.vehicle : undefined} />
+        <PickupLocation resident={household} responder={assignment ? match?.vehicle : undefined} onGetDirections={assignment ? showDirections : undefined} disabled={disabled} />
         <Section title="Summary">
           <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "#f5f5f6", overflowWrap: "anywhere" }}>{row.summary}</p>
         </Section>
@@ -217,7 +229,17 @@ export const CaseFile: React.FC<CaseFileProps> = ({
           )}
         </Section>
 
-        <RoadRoute row={row} route={route} guidance={guidance} disabled={disabled} send={send} />
+        <div ref={directions}><RoadRoute row={row} route={route} guidance={guidance} disabled={disabled} send={send} /></div>
+        <DriverComms
+          household={household}
+          request={request}
+          assignment={assignment}
+          vehicle={match?.vehicle}
+          vehicles={vehicles}
+          messages={messages}
+          disabled={disabled}
+          send={send}
+        />
         <ResidentNotice row={row} messages={messages} disabled={disabled} send={send} />
         <HumanHandoff calls={homeCalls} handoffs={handoffs} />
 
@@ -239,7 +261,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
                     ) : (
                       <>
                         <span>{contact.message.direction === "in" ? "Text from resident" : "Text to resident"} · {words(contact.message.state)}</span>
-                        <div style={{ color: "#c2c2c9" }}>{contact.message.body}</div>
+                        <div style={{ color: "#c2c2c9" }}>{contact.message.body.replace(/Demo medical dispatcher/g, "Medical dispatch").replace(/Demo dispatcher/g, "Rescue dispatch").replace(/Demo responder/g, "Response team")}</div>
                         {contact.message.error && <div style={{ color: "#f87171" }}>{contact.message.error}</div>}
                       </>
                     )}
@@ -257,7 +279,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
               {changes.map((change) => (
                 <li key={String(change.id)} style={{ overflowWrap: "anywhere" }}>
                   <span className="capitalize">{words(change.field)}</span>: {change.before} → {change.after}{" "}
-                  <span style={{ color: "#9a9aa0" }}>({words(change.source)})</span>
+                  <span style={{ color: "#9a9aa0" }}>({words(change.source.replace(/^simulated[-_]?/, "").replace(/[-_]?demo/g, ""))})</span>
                 </li>
               ))}
             </ul>
@@ -268,7 +290,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
           {conversation.length === 0 ? (
             <EmptyState
               title="No conversation recorded for this household."
-              detail={household.simulated ? "Simulated homes answer without a voice conversation, so they have no transcript." : "Lines appear here as soon as the voice service records them."}
+              detail="Responses appear here when a conversation is recorded."
             />
           ) : (
             <div className="flex flex-col gap-3">
@@ -297,7 +319,7 @@ export const CaseFile: React.FC<CaseFileProps> = ({
                         color: "#f5f5f6",
                       }}
                     >
-                      <p className="whitespace-pre-wrap" style={{ margin: 0, lineHeight: 1.45, overflowWrap: "anywhere" }}>{line.text}</p>
+                      <p className="whitespace-pre-wrap" style={{ margin: 0, lineHeight: 1.45, overflowWrap: "anywhere" }}>{line.text.replace(/^SIMULATION: /, "")}</p>
                       <time style={{ fontSize: 10, color: "#9a9aa0", fontVariantNumeric: "tabular-nums" }}>{clock(millis(line.at))}</time>
                     </div>
                   </div>

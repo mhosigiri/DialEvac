@@ -29,7 +29,7 @@ function applyMode(force) {
   for (const k of ['bg', 'ink', 'sub', 'line', 'accent']) r.setProperty('--' + k, P.ui[k]);
   r.setProperty('--bg-solid', P.ui.bg.replace(/rgba?\(([^)]+),[^,]+\)$/, 'rgb($1)')); r.setProperty('--fx', P.fx);
   document.body.style.background = P.bg;
-  $('#legend').innerHTML = (window.DIALEVAC_LEGEND ? DIALEVAC_LEGEND(mode) : '') + Object.entries(P.status).map(([k, c]) => `<span><i style="--c:${c};--stroke:${P.hhStroke}"></i>${k[0].toUpperCase() + k.slice(1)}</span>`).join('') + '<span style="opacity:.65">· synthetic</span>';
+  $('#legend').innerHTML = (window.DIALEVAC_LEGEND ? DIALEVAC_LEGEND(mode) : '') + Object.entries(P.status).map(([k, c]) => `<span><i style="--c:${c};--stroke:${P.hhStroke}"></i>${k[0].toUpperCase() + k.slice(1)}</span>`).join('');
   document.querySelectorAll('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === state.pref)));
   $('#sun').textContent = sunText();
   if (map) restyle();

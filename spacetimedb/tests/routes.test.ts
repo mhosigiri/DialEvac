@@ -18,16 +18,16 @@ function fixture() {
   const a = [...h.db.assignment.iter()][0];
   tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
   const snapshot = h.db.dispatchRoute.assignmentId.find(a.id)!;
-  const body = { code: "Ok", routes: [{ distance: 1400, duration: 210, geometry: { type: "LineString", coordinates: [[vehicle.lng, vehicle.lat], [home.lng, home.lat]] } }] };
+  const body = { code: "Ok", source: "osmnx", routes: [{ distance: 1400, duration: 210, geometry: { type: "LineString", coordinates: [[vehicle.lng, vehicle.lat], [home.lng, home.lat]] } }] };
   return { h, tx, home, vehicle, request, a, snapshot, body };
 }
 
-it("translates OSRM longitude/latitude road geometry and keeps distance and duration in their documented units", () => {
+it("translates OSMnx longitude/latitude road geometry and keeps distance and duration in their documented units", () => {
   const { h, tx, snapshot, body, vehicle, home, a } = fixture();
   tx(ctx => moduleExports.requestDispatchRoute(ctx, { assignmentId: a.id }));
   expect(h.db.routeJob.count()).toBe(1n);
   tx(ctx => commitRoadRoute(ctx, snapshot, parseRoadRoute(body)));
-  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "ready", source: "osrm", distanceMeters: 1400, durationSeconds: 210,
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "ready", source: "osmnx", distanceMeters: 1400, durationSeconds: 210,
     points: [{ lat: vehicle.lat, lng: vehicle.lng }, { lat: home.lat, lng: home.lng }] });
 });
 
@@ -114,7 +114,7 @@ it("rejects geometry that crosses a recorded road closure", () => {
   expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Road route intersects a reported closure" });
 });
 
-it("runs the internal OSRM procedure and commits only the real returned road geometry", () => {
+it("runs the internal OSMnx procedure and commits only the real returned road geometry", () => {
   const { h, body, a } = fixture();
   const job = [...h.db.routeJob.iter()][0];
   let url = "";
@@ -153,11 +153,22 @@ it("logs the native HTTP status for diagnosis while keeping provider details out
   try {
     const base = h.procedureContextBuilder(TestAuth.internal()).http(() => ({ code: 403, version: { tag: "Http11" }, headers: { entries: [] }, body: "Provider detail" })).build();
     const ctx = new Proxy(base, { get: (target, key) => {
-      if (key === "env") return {};
+      if (key === "env") return { ROUTER_URL: "https://osmnx.example.test" };
       const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value;
     } });
     moduleExports.calculateDispatchRoute(ctx, { arg: job });
-    expect(log).toHaveBeenCalledWith("[routing] native OSRM fetch failed", "Error: Routing provider returned HTTP 403");
+    expect(log).toHaveBeenCalledWith("[routing] native OSMnx fetch failed", "Error: Routing provider returned HTTP 403");
     expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "failed", points: [], failureReason: "Routing provider unavailable or no valid road route returned" });
   } finally { log.mockRestore(); }
+});
+
+it("leaves routes for the service bridge when the module has no reachable OSMnx URL", () => {
+  const { h, a } = fixture(), job = [...h.db.routeJob.iter()][0];
+  const base = h.procedureContextBuilder(TestAuth.internal()).http(() => { throw new Error("must not use public OSRM"); }).build();
+  const ctx = new Proxy(base, { get: (target, key) => {
+    if (key === "env") return {};
+    const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value;
+  } });
+  moduleExports.calculateDispatchRoute(ctx, { arg: job });
+  expect(h.db.dispatchRoute.assignmentId.find(a.id)).toMatchObject({ state: "pending", source: "osmnx" });
 });

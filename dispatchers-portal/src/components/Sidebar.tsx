@@ -1,7 +1,7 @@
 import React from "react";
-import { LayoutGrid, Ambulance, Map as MapIcon, KeyRound, Columns3, PhoneCall } from "lucide-react";
+import { LayoutGrid, Ambulance, Map as MapIcon, KeyRound, Columns3, PhoneCall, RadioTower } from "lucide-react";
 
-export type PortalView = "operations" | "queue" | "fleet" | "map" | "calls";
+export type PortalView = "operations" | "queue" | "fleet" | "map" | "calls" | "incident";
 
 interface SidebarProps {
   view: PortalView;
@@ -15,6 +15,7 @@ const ITEMS: { id: PortalView; label: string; icon: React.ReactNode }[] = [
   { id: "calls", label: "Calls", icon: <PhoneCall style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "fleet", label: "Fleet", icon: <Ambulance style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
   { id: "map", label: "Map", icon: <MapIcon style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
+  { id: "incident", label: "Incident", icon: <RadioTower style={{ width: 22, height: 22 }} strokeWidth={1.8} /> },
 ];
 
 /** Icon rail: white logo tile + wordmark, outline nav, active pill, link state at the bottom. */
