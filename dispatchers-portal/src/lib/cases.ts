@@ -64,11 +64,20 @@ function matchFor(vehicle: Vehicle, household: Household, request: Request, run:
   };
 }
 
-function summaryFor(home: Household, request: Request | undefined, call: Call | undefined, account: Account) {
+function summaryFor(home: Household, request: Request | undefined, call: Call | undefined, account: Account, now: number) {
   const record = request ?? home;
   const facts = [`${record.people} occupant${record.people === 1 ? "" : "s"}`, `mobility: ${record.mobility}`];
   if (record.assistance !== "none") facts.push(`assistance: ${record.assistance.replace(/_/g, " ")}`);
   if (record.oxygen) facts.push("oxygen required");
+  const deadline = home.hazardAt ?? request?.deadlineAt;
+  if (deadline) {
+    const minutesLeft = (Number(deadline.toMillis()) - now) / 60_000;
+    const label = home.hazardAt ? "hazard time" : "pickup deadline";
+    const minutes = Math.abs(minutesLeft);
+    const rounded = Math.round(minutes);
+    const duration = minutes < 1 ? "less than 1 minute" : `about ${rounded} minute${rounded === 1 ? "" : "s"}`;
+    facts.push(minutesLeft === 0 ? `${label} is now` : minutesLeft > 0 ? `${label} in ${duration}` : `${label} passed ${duration} ago`);
+  }
   if (request) facts.push(`request ${request.status.replace(/_/g, " ")}`);
   if (request?.escalation) facts.push(`escalation: ${request.escalation.replace(/_/g, " ")}`);
   if (home.canLeave === true) facts.push("confirmed able to leave independently");
@@ -140,7 +149,7 @@ export function buildCases(tables: Tables): CaseRow[] {
         ? { kind: "dispatch", requestId: request.id, vehicleId: match.vehicle.id, etaMinutes: match.etaMinutes, stopOrder: match.stopOrder }
         : { kind: "no_capable_unit", requestId: request.id };
     }
-    const row: CaseRow = { household, request, assignment, call, account, urgency, summary: summaryFor(household, request, call, account),
+    const row: CaseRow = { household, request, assignment, call, account, urgency, summary: summaryFor(household, request, call, account, now),
       match: match && { vehicle: match.vehicle, distanceMiles: match.distanceMiles, etaMinutes: match.etaMinutes, canServe: match.canServe }, action };
     return { row, resolved, score };
   }).sort((a, b) => Number(a.resolved) - Number(b.resolved) || b.score - a.score || byId(a.row.household, b.row.household)).map(({ row }) => row);

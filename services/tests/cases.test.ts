@@ -79,6 +79,37 @@ test("door-check coverage and factual summaries do not invent calls or oxygen ne
   assert.match(withOxygen.summary, /oxygen required/);
 });
 
+test("an ambulatory door-check summary explains critical urgency when hazard time passed four hours ago", t => {
+  t.mock.method(Date, "now", () => Date.parse("2026-11-08T10:00:00Z"));
+  const [row] = buildCases(tables({ households: [home({ mobility: "walks", reach: "door_check", canLeave: undefined, hazardAt: at(-240) })], requests: [] }));
+  assert.equal(row.urgency, "critical");
+  assert.match(row.summary, /hazard time passed about 240 minutes ago/);
+  assert.match(row.summary, /door check needed/);
+});
+
+test("summaries show future hazard timing and distinguish the pickup deadline fallback", t => {
+  t.mock.method(Date, "now", () => Date.parse("2026-11-08T10:00:00Z"));
+  const [hazard] = buildCases(tables({ households: [home({ hazardAt: at(25) })], requests: [request({ deadlineAt: at(5) })] }));
+  assert.match(hazard.summary, /hazard time in about 25 minutes/);
+  assert.doesNotMatch(hazard.summary, /pickup deadline/);
+  const [pickup] = buildCases(tables({ requests: [request({ deadlineAt: at(20) })] }));
+  assert.match(pickup.summary, /pickup deadline in about 20 minutes/);
+  assert.doesNotMatch(pickup.summary, /hazard time/);
+});
+
+test("timing summaries handle the current minute and absent timestamps without inventing a deadline", t => {
+  t.mock.method(Date, "now", () => Date.parse("2026-11-08T10:00:00Z"));
+  for (const [minutes, fact] of [
+    [0, "hazard time is now"], [0.5, "hazard time in less than 1 minute"], [-0.5, "hazard time passed less than 1 minute ago"],
+    [1, "hazard time in about 1 minute"], [-1, "hazard time passed about 1 minute ago"],
+  ] as const) {
+    const [row] = buildCases(tables({ households: [home({ hazardAt: at(minutes) })], requests: [] }));
+    assert(row.summary.includes(fact), row.summary);
+  }
+  const [unknown] = buildCases(tables({ requests: [] }));
+  assert.doesNotMatch(unknown.summary, /hazard time|pickup deadline|minutes? ago/);
+});
+
 test("coverage uses current calls, pending ladder state, escalation and closed requests", () => {
   for (const phase of ["queued", "ringing", "live"]) {
     const [row] = buildCases(tables({ requests: [], calls: [call({ phase })] }));
