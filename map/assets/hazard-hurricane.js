@@ -54,6 +54,8 @@ const HURR = (() => {
   const past = [[-88.9, 23.6], [-90.3, 24.9], [-91.7, 26.1], [-93.2, 27.4], [-94.4, 28.4], EYE];
   const fut = [EYE, [-95.95, 30.55], [-96.5, 31.8], [-96.75, 33.0], [-96.6, 34.3]];
   const futLbl = ['NOW · CAT 3 · 115 mph', '+12 h · CAT 1', '+24 h · TROPICAL STORM', '+36 h · TS · DALLAS–RICHARDSON', '+48 h · DEPRESSION'];
+  const demoPath = globalThis.RICHARDSON_SIM.HURRICANE_TRACK;
+  const positionAt = globalThis.RICHARDSON_SIM.hurricanePositionAt;
   const circle = (c, rKm, n = 72) => Array.from({ length: n + 1 }, (_, i) => { const a = i / n * 2 * Math.PI; return [c[0] + rKm / (111.32 * Math.cos(c[1] * Math.PI / 180)) * Math.cos(a), c[1] + rKm / 110.57 * Math.sin(a)]; });
   function cone() { // union of circles along the forecast, approximated by a hull of left/right offsets
     const rad = [20, 60, 95, 130, 170], L = [], R = [];
@@ -75,7 +77,7 @@ const HURR = (() => {
     ...fut.map((p, i) => ({ type: 'Feature', properties: { k: 'pt', past: 0, label: futLbl[i], now: i === 0 ? 1 : 0 }, geometry: { type: 'Point', coordinates: p } })),
   ]);
   const coords = () => [[BOX.w, BOX.n], [BOX.e, BOX.n], [BOX.e, BOX.s], [BOX.w, BOX.s]];
-  return { cv, step, paint, densityAt, GEO, EYE, coords };
+  return { cv, step, paint, densityAt, GEO, EYE, coords, demoPath, positionAt };
 })();
 
 (() => {

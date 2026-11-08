@@ -2,7 +2,7 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const LAT = 32.977, LNG = -96.758;
-const state = { pref: 'auto', mode: null, motion: !matchMedia('(prefers-reduced-motion: reduce)').matches, hazards: new Set(), ready: false, t0: performance.now() };
+const state = { pref: 'auto', mode: null, motion: !matchMedia('(prefers-reduced-motion: reduce)').matches, hazards: new Set(), ready: false, t0: performance.now(), styleVersion: 0, frameLoopCount: 0 };
 const HAZARDS = []; // registered by hazard modules: { id, label, note, enable(map), disable(map), layers(mode), sources(), tick(map,t,dt) -> hud text }
 let map;
 
@@ -29,22 +29,24 @@ function applyMode(force) {
   for (const k of ['bg', 'ink', 'sub', 'line', 'accent']) r.setProperty('--' + k, P.ui[k]);
   r.setProperty('--bg-solid', P.ui.bg.replace(/rgba?\(([^)]+),[^,]+\)$/, 'rgb($1)')); r.setProperty('--fx', P.fx);
   document.body.style.background = P.bg;
-  $('#legend').innerHTML = Object.entries(P.status).map(([k, c]) => `<span><i style="--c:${c};--stroke:${P.hhStroke}"></i>${k[0].toUpperCase() + k.slice(1)}</span>`).join('') + '<span style="opacity:.65">· synthetic</span>';
+  $('#legend').innerHTML = (window.DIALEVAC_LEGEND ? DIALEVAC_LEGEND(mode) : '') + Object.entries(P.status).map(([k, c]) => `<span><i style="--c:${c};--stroke:${P.hhStroke}"></i>${k[0].toUpperCase() + k.slice(1)}</span>`).join('') + '<span style="opacity:.65">· synthetic</span>';
   document.querySelectorAll('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === state.pref)));
   $('#sun').textContent = sunText();
   if (map) restyle();
 }
 function restyle(after) {
+  const version = ++state.styleVersion;
   state.ready = false;
   const st = fullStyle(state.mode);
   map.setStyle(st, { diff: true });
-  // style diffs do not apply projection changes, and setProjection throws until the style is loaded
-  // (a projection change also cancels camera animations, so callers' fly-tos run in `after`)
-  const proj = () => { try { map.setProjection(st.projection); } catch (e) { return setTimeout(proj, 100); } after && after(); };
-  proj();
-  markReady();
+  const ready = () => {
+    if (version !== state.styleVersion) return;
+    try { map.setProjection(st.projection); } catch (_) { /* next styledata completes it */ }
+    state.ready = true;
+    after?.();
+  };
+  if (map.isStyleLoaded()) ready(); else map.once('styledata', ready);
 }
-function markReady() { const go = () => { state.ready = true; }; if (map.isStyleLoaded()) go(); else map.once('styledata', go); setTimeout(go, 1500); }
 
 // ---------- hazards UI ----------
 function renderHazards() {
@@ -86,15 +88,17 @@ function tick(now) {
 function boot() {
   for (const h of HAZARDS) if (h.defaultOn) state.hazards.add(h.id);
   applyMode(true);
-  map = new maplibregl.Map({ container: 'map', style: fullStyle(state.mode), center: [-97, 33], zoom: 1.8, maxPitch: 75, attributionControl: { compact: true } });
+  map = new maplibregl.Map({ container: 'map', style: fullStyle(state.mode), ...HOME, maxPitch: 75, attributionControl: { compact: true } });
   window.__map = map;
+  window.__dialevacState = state;
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
   map.on('styleimagemissing', e => { if (!map.hasImage(e.id) && window.makeIcon) { const m = makeIcon(e.id); if (m) map.addImage(e.id, m.img, m.opts); } });
   map.on('error', e => console.error('map error', e.error && e.error.message));
-  map.once('load', () => { state.ready = true; setTimeout(() => map.flyTo({ ...HOME, duration: 6000, essential: true, curve: 1.6 }), 500); });
+  map.once('load', () => { state.ready = true; });
   renderHazards();
   setMotion(state.motion);
   setInterval(() => applyMode(false), 60000); // re-check the sun every minute
+  state.frameLoopCount += 1;
   requestAnimationFrame(tick);
 }
 window.addEventListener('DOMContentLoaded', boot);
