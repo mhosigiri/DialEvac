@@ -50,6 +50,9 @@ export type WebhookEvent =
       type: "post_call_transcription";
       data: {
         conversation_id: string;
+        // Official raw post_call_transcription payload: role="agent"|"user", message may be null for tool-only turns.
+        // https://elevenlabs.io/docs/eleven-api/resources/webhooks
+        transcript?: { role: string; message?: string | null; time_in_call_secs?: number }[];
         metadata?: { termination_reason?: string };
         analysis?: { data_collection_results?: Collected };
         // ElevenLabs adds system__caller_id (E.164) to every phone call; an incoming call has no call_id.

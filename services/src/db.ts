@@ -64,6 +64,8 @@ export function contractFor(conn: DbConnection): Contract {
     recordDigit: (callId, digit) => r.recordDigit({ callId, digit }),
     inboundCallEnded: (phone, providerId, answer) =>
       r.inboundCallEnded({ phone, providerId, choice: answer.choice, people: answer.people, oxygen: answer.oxygen }),
+    recordCallTranscript: ({ providerId, callId, callbackId, phone, turns }) =>
+      r.recordCallTranscript({ providerId, callId, callbackId, phone, turns }),
     updateRecord: (householdId, patch, source) =>
       r.updateRecord({
         householdId,

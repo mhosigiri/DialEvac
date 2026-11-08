@@ -309,6 +309,12 @@ export const feedPoll = table(
   { scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt() },
 );
 
+// A whole final conversation commits once, so duplicate deliveries cannot duplicate its turns.
+const transcriptReceipt = table(
+  { name: "transcript_receipt" },
+  { providerId: t.string().primaryKey(), callId: t.u64().index("btree"), turnCount: t.u32(), at: t.timestamp() },
+);
+
 export const spacetimedb = schema(
   {
     control,
@@ -334,6 +340,7 @@ export const spacetimedb = schema(
     reachStep,
     replanJob,
     feedPoll,
+    transcriptReceipt,
   },
   {
     env: {

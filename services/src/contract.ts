@@ -5,6 +5,7 @@ export type HouseholdRow = { id: bigint; phone: string; language: string; name: 
 export type MessageRow = { id: bigint; householdId: bigint; direction: string; state: string; body: string };
 export type CallRow = { id: bigint; householdId: bigint; purpose: string; phase: string; priority: number; providerId?: string };
 export type CallbackRow = { id: bigint; householdId: bigint; state: string; line: string };
+export type ConversationTranscript = { providerId: string; callId?: bigint; callbackId?: bigint; phone?: string; turns: { speaker: "agent" | "resident"; text: string }[] };
 
 export interface Contract {
   household(id: bigint): HouseholdRow | undefined;
@@ -25,6 +26,7 @@ export interface Contract {
   recordDigit(callId: bigint, digit: string): Promise<void>;
   // A resident called in: the module finds the home by phone. choice is "" when they gave no clear answer.
   inboundCallEnded(phone: string, providerId: string, answer: { choice: string; people?: number; oxygen?: boolean }): Promise<void>;
+  recordCallTranscript(transcript: ConversationTranscript): Promise<void>;
   updateRecord(householdId: bigint, patch: { people?: number; oxygen?: boolean }, source: string): Promise<void>;
   markCallback(callbackId: bigint, state: "placed" | "played" | "unanswered"): Promise<void>;
 }

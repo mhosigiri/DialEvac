@@ -29,6 +29,7 @@ function resetAssistanceStory(tx: Tx) {
   const assignmentIds = new Set(assignments.map(assignment => assignment.id));
   const calls = homes.flatMap(home => [...tx.db.call.householdId.filter(home.id)]);
   for (const call of calls) {
+    for (const receipt of [...tx.db.transcriptReceipt.callId.filter(call.id)]) tx.db.transcriptReceipt.providerId.delete(receipt.providerId);
     for (const line of [...tx.db.transcriptLine.callId.filter(call.id)]) tx.db.transcriptLine.id.delete(line.id);
     tx.db.call.id.delete(call.id);
   }

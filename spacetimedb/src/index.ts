@@ -19,3 +19,4 @@ export { replan } from "./dispatch";
 export { issueWarning, setStandIns, setHazardOrigin, endNight, seedStandInTown, seedTornadoDemo, tick } from "./loop";
 export { pollFeeds, startFeeds, replayWarning } from "./feeds";
 export { seedAssistanceDemo, advanceAssistanceDemo } from "./demos";
+export { recordCallTranscript } from "./transcripts";

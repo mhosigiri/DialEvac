@@ -1,7 +1,7 @@
 import http from "node:http";
 import { env, isFictional, mayContact } from "./env";
 import { endedOn, failureOutcome, outboundCall, surveyAnswer, verifiedEvent, type WebhookEvent } from "./elevenlabs";
-import type { CallbackRow, CallRow, Contract, HouseholdRow } from "./contract";
+import type { CallbackRow, CallRow, Contract, HouseholdRow, ConversationTranscript } from "./contract";
 
 // The voice service. Places queued survey calls and pending callbacks at a paced rate from the
 // Photon number, where an ElevenLabs agent holds the conversation, and takes each one's result back
@@ -88,14 +88,24 @@ export async function handleElevenlabsEvent(db: Contract, event: WebhookEvent) {
   const conversation = failed ? undefined : (event as Extract<WebhookEvent, { type: "post_call_transcription" }>).data;
   const callId = variables?.call_id ? BigInt(variables.call_id) : undefined;
   const callbackId = variables?.callback_id ? BigInt(variables.callback_id) : undefined;
-  if (callbackId !== undefined) return db.markCallback(callbackId, failed ? "unanswered" : "played");
+  const turns: ConversationTranscript["turns"] = (conversation?.transcript ?? []).flatMap(turn => {
+    if (!["agent", "user"].includes(turn.role) || typeof turn.message !== "string" || !turn.message.trim()) return [];
+    return [{ speaker: turn.role === "agent" ? "agent" as const : "resident" as const, text: turn.message }];
+  });
+  if (callbackId !== undefined) {
+    if (conversation && turns.length) await db.recordCallTranscript({ providerId: conversation.conversation_id, callbackId, turns });
+    return db.markCallback(callbackId, failed ? "unanswered" : "played");
+  }
   const answer = surveyAnswer(conversation?.analysis?.data_collection_results);
   if (callId === undefined) {
     const caller = conversation?.conversation_initiation_client_data?.dynamic_variables?.system__caller_id;
     if (!conversation || !caller) return;
-    return db.inboundCallEnded(caller, conversation.conversation_id, { ...answer, choice: answer.choice ?? "" });
+    await db.inboundCallEnded(caller, conversation.conversation_id, { ...answer, choice: answer.choice ?? "" });
+    if (turns.length) await db.recordCallTranscript({ providerId: conversation.conversation_id, phone: caller, turns });
+    return;
   }
   if (failed) return db.callEnded(callId, failureOutcome((event.data as { failure_reason?: string }).failure_reason));
+  if (conversation && turns.length) await db.recordCallTranscript({ providerId: conversation.conversation_id, callId, turns });
   const call = db.call(callId);
   if (answer.choice && call) {
     const known = Object.fromEntries(Object.entries({ people: answer.people, oxygen: answer.oxygen }).filter(([, v]) => v !== undefined));
