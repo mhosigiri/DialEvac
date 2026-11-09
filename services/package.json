@@ -17,6 +17,7 @@
     "demo:preflight": "tsx --env-file-if-exists=../.env scripts/demo-preflight.ts",
     "voice:safety": "tsx --env-file-if-exists=../.env scripts/prepare-voice-safety.ts",
     "eval:voice": "tsx --env-file-if-exists=../.env scripts/evaluate-voice.ts",
+    "eval:dialogue": "tsx --env-file-if-exists=../.env scripts/rehearse-dialogue.ts",
     "routes": "tsx --env-file-if-exists=../.env scripts/route-bridge.ts",
     "catastrophe": "tsx --env-file-if-exists=../.env scripts/simulate-catastrophe.ts",
     "demo:rehearse": "tsx --env-file-if-exists=../.env scripts/rehearse-houston.ts",
@@ -26,7 +27,9 @@
     "demo:history": "tsx --env-file-if-exists=../.env scripts/seed-historical-houston.ts",
     "demo:cases": "tsx --env-file-if-exists=../.env scripts/restore-demo-cases.ts",
     "voice:guard:prepare": "tsx --env-file-if-exists=../.env scripts/prepare-voice-guard.ts",
-    "voice:guard:configure": "tsx --env-file-if-exists=../.env scripts/configure-voice-guard.ts"
+    "voice:guard:configure": "tsx --env-file-if-exists=../.env scripts/configure-voice-guard.ts",
+    "voice:noise": "tsx --env-file-if-exists=../.env scripts/configure-voice-noise.ts",
+    "twilio:setup": "tsx --env-file-if-exists=../.env scripts/setup-twilio.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.77.0",

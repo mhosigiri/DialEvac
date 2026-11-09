@@ -155,3 +155,15 @@
   .outreach-main { padding: 20px 0 0; }
   .outreach-workspace { height: auto; }
 }
+
+.outreach-twilio { margin-top: 18px; }
+.outreach-real-contacts { display: flex; flex-wrap: wrap; gap: 12px; }
+.outreach-real-contacts button { flex: 1; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px; color: var(--ds-text); background: var(--ds-surface-inset); border: 1px solid var(--ds-border); border-radius: 10px; font-size: 12px; }
+.outreach-real-contacts button[aria-pressed="true"] { border-color: var(--ds-accent); }
+.outreach-real-contacts > p { color: var(--ds-text-muted); margin: 0; font-size: 12px; }
+.outreach-real-transcript { max-height: 150px; overflow: auto; margin-top: 12px; font-size: 12px; color: var(--ds-text-secondary); }
+.outreach-real-transcript p { display: flex; gap: 8px; align-items: baseline; margin: 8px 0; line-height: 1.6; }
+.outreach-real-transcript strong { color: var(--ds-accent); white-space: nowrap; font-size: 11px; }
+.outreach-call-error { margin-top: 12px; padding: 12px 16px; border: 1px solid rgb(248 113 113 / 35%); border-radius: 10px; color: var(--ds-danger); background: rgb(248 113 113 / 10%); }
+
+@media (min-width: 851px) { .outreach-workspace { height: calc(100vh - 465px); min-height: 500px; } }

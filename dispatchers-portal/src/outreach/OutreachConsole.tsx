@@ -9,6 +9,8 @@ import { Button } from "../design-system/Button";
 import { Badge } from "../design-system/Badge";
 import { Stat } from "../design-system/Stat";
 import { Tabs } from "../design-system/Tabs";
+import { useTwilioOutreach } from "./useTwilioOutreach";
+import { TwilioCallPanel } from "./TwilioCallPanel";
 import "./outreach.css";
 
 const INITIAL: Session = { version: 1, category: "flood", size: 144, elapsed: 0, speed: 1, selected: 0 };
@@ -16,6 +18,7 @@ const SPEAKERS: Record<Speaker, string> = { resident: "Resident · STT", agent: 
 const clock = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 export function OutreachConsole() {
+  const twilio = useTwilioOutreach();
   const [session, setSession] = useState<Session>(INITIAL);
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
@@ -86,6 +89,7 @@ export function OutreachConsole() {
 
   function reset(category: Catastrophe = session.category, size = session.size) {
     setRunning(false);
+    twilio.resetAttempt();
     spoken.current = "";
     setSession(value => ({ ...value, category, size, elapsed: 0, selected: 0 }));
   }
@@ -101,10 +105,19 @@ export function OutreachConsole() {
       <PageHeader title="Resident outreach" description="Reach affected households in parallel. Understand their needs. Coordinate the response."
         status={<Badge dot tone={running ? "success" : "neutral"}>{running ? "Outreach active" : session.elapsed >= duration ? "Complete" : session.elapsed ? "Paused" : "Ready"}</Badge>}
         actions={<>
-          <Button variant="secondary" aria-label="Reset outreach" title="Reset outreach" onClick={() => reset()} leadingIcon={<RotateCcw size={15} />} />
+          <Button disabled={twilio.launching} variant="secondary" aria-label="Reset outreach" title="Reset outreach" onClick={() => reset()} leadingIcon={<RotateCcw size={15} />} />
           <select className="outreach-speed" aria-label="Playback speed" value={session.speed} onChange={e => setSession(s => ({ ...s, speed: Number(e.target.value) }))}><option value="1">1× speed</option><option value="2">2× speed</option><option value="4">4× speed</option></select>
-          <Button disabled={!ready} onClick={() => { if (session.elapsed >= duration) reset(); setRunning(value => !value); }} leadingIcon={running ? <Pause size={16} /> : <Play size={16} />}>{running ? "Pause outreach" : session.elapsed >= duration ? "Replay outreach" : session.elapsed > 0 ? "Resume outreach" : "Launch outreach"}</Button>
+          <Button disabled={!ready || twilio.launching} loading={twilio.launching} onClick={async () => {
+            if (running) { setRunning(false); return; }
+            if (twilio.hasLaunched && session.elapsed < duration) { setRunning(true); return; }
+            if (session.elapsed >= duration) reset();
+            if (!twilio.hasLaunched) setSession(s => ({ ...s, elapsed: 0 }));
+            setRunning(true);
+            if (!await twilio.launch(session.category)) setRunning(false);
+          }} leadingIcon={running ? <Pause size={16} /> : <Play size={16} />}>{running ? "Pause visualization" : !twilio.hasLaunched ? "Launch outreach" : session.elapsed >= duration ? "Launch again" : "Resume visualization"}</Button>
         </>} />
+      {twilio.error && <p role="alert" className="outreach-call-error">{twilio.error}</p>}
+      <TwilioCallPanel batch={twilio.batch} connected={twilio.connected} />
       <div className="outreach-scenario"><span className="outreach-eyebrow">HOUSTON, TX / INCIDENT</span>
         <Tabs variant="segmented" items={CATASTROPHES.map(category => ({ id: category, label: TRIAGE[category].label }))} activeId={session.category}
           onChange={id => { const category = CATASTROPHES.find(category => category === id); if (category) reset(category); }} />

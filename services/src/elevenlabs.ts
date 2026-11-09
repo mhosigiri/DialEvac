@@ -4,7 +4,8 @@ import { SPEECH, guardResidentTurn } from "../../spacetimedb/src/domain/honesty"
 import { assessmentToken } from "./live-assessment";
 import { voiceGuardContext } from "./voice-guard";
 import { withVoiceSafety } from "./voice-safety";
-import { catastrophePrompt } from "../../shared/catastrophe-triage";
+import { withVoiceDialogue } from "./voice-dialogue";
+import { catastrophePrompt, type Catastrophe } from "../../shared/catastrophe-triage";
 
 // ElevenLabs runs the conversation on every call; Photon is the line it dials out on (SIP trunk).
 // The agent sorts what a resident says into the keypad's four choices, so a spoken answer lands in
@@ -17,17 +18,18 @@ export const elevenlabs = () => (client ??= new ElevenLabsClient());
 export type CallKind = "survey" | "callback";
 
 // Every dynamic variable the prompt names must be sent on every call, or the call fails to start.
-export type CallVariables = { kind: CallKind; call_id: string; callback_id: string; name: string; household_id?: string };
+export type CallVariables = { kind: CallKind; call_id: string; callback_id: string; name: string; household_id?: string; incident_category?: Catastrophe };
 
-export async function outboundCall(to: string, variables: CallVariables, firstMessage?: string) {
-  const activeAgent = await elevenlabs().conversationalAi.agents.get(env.elevenlabs.agentId(), {}, { timeoutInSeconds: 10, maxRetries: 0 });
+export type CallTransport = { provider: "twilio"; agentId: string; phoneNumberId: string } | { provider: "sip"; agentId: string; phoneNumberId: string };
+export async function outboundCall(to: string, variables: CallVariables, firstMessage?: string, transport: CallTransport = { provider: "sip", agentId: env.elevenlabs.agentId(), phoneNumberId: env.elevenlabs.phoneNumberId() }) {
+  const activeAgent = await elevenlabs().conversationalAi.agents.get(transport.agentId, {}, { timeoutInSeconds: 10, maxRetries: 0 });
   assertGuardedAgent(activeAgent, env.voice.publicUrl());
   // A greeting can play while the phone is still connecting. Keep it neutral; all dispatch facts
   // are resolved afresh by the blocking turn endpoint after the resident responds.
   const greeting = guardResidentTurn(variables.kind === "callback" ? SPEECH.callbackFirst : firstMessage === SPEECH.demoFirst ? SPEECH.demoFirst : SPEECH.first).text;
-  const result = await elevenlabs().conversationalAi.sipTrunk.outboundCall({
-    agentId: env.elevenlabs.agentId(),
-    agentPhoneNumberId: env.elevenlabs.phoneNumberId(),
+  const request = {
+    agentId: transport.agentId,
+    agentPhoneNumberId: transport.phoneNumberId,
     toNumber: to,
     conversationInitiationClientData: {
       dynamicVariables: { ...variables, ...(variables.kind === "survey" && /^\d+$/.test(variables.call_id)
@@ -36,7 +38,11 @@ export async function outboundCall(to: string, variables: CallVariables, firstMe
       conversationConfigOverride: { agent: { firstMessage: greeting } },
     },
     telephonyCallConfig: { ringingTimeoutSecs: 30 },
-  }, { maxRetries: 0, timeoutInSeconds: 45 });
+  };
+  const options = { maxRetries: 0, timeoutInSeconds: 45 };
+  const result = transport.provider === "twilio"
+    ? await elevenlabs().conversationalAi.twilio.outboundCall({ ...request, callRecordingEnabled: false }, options)
+    : await elevenlabs().conversationalAi.sipTrunk.outboundCall(request, options);
   if (!result.success) throw new Error(`ElevenLabs did not start the call: ${result.message}`);
   return result.conversationId ?? "elevenlabs";
 }
@@ -102,15 +108,11 @@ You are calling {{name}}. This call's kind is "{{kind}}".
 
 If the kind is "callback": use the current approved status phrase supplied by the blocking output gate. Never reuse a previous turn's assignment or ETA. Then say goodbye and end the call.
 
-If the kind is "survey": find out, in as few turns as you can, which one of these is true:
-1. They can leave on their own.
-2. They need a ride but can walk to a car.
-3. They need a wheelchair-accessible ride.
-4. Someone must be lifted or carried out.
+If the kind is "survey": use ordinary spoken questions to learn whether the resident can leave independently, needs a ride they can walk to, needs wheelchair transport, or needs lifting or carrying. These are internal assessment categories, never a spoken or keypad menu.
 Also ask how many people are in the home and whether anyone uses oxygen, if they don't say.
 Confirm their answer back in one sentence. If they can leave, tell them to leave only if it is safe. If they need help, acknowledge their request without claiming it is saved or promising a callback. Then end the call.
 
-Always: speak plainly and briefly, one question at a time. If they are confused or upset, stay calm and repeat the choices. If it is an emergency happening right now, tell them to hang up and call 911. Never give medical or legal advice.`;
+Always: speak plainly and briefly, one question at a time. If they are confused or upset, stay calm and simplify the question without listing numbered choices. If it is an emergency happening right now, tell them to hang up and call 911. Never give medical or legal advice.`;
 
 export function agentConfig(webhookId: string) {
   return {
@@ -122,7 +124,7 @@ export function agentConfig(webhookId: string) {
         language: "en",
         dynamicVariables: { dynamicVariablePlaceholders: { kind: "survey", call_id: "", callback_id: "", name: "there" } },
         prompt: {
-          prompt: withVoiceSafety(`${PROMPT}\n\n${catastrophePrompt()}`),
+          prompt: withVoiceSafety(withVoiceDialogue(`${PROMPT}\n\n${catastrophePrompt()}`)),
           builtInTools: {
             endCall: { type: "system", name: "end_call", description: "", params: { systemToolType: "end_call" } },
             voicemailDetection: {
@@ -170,11 +172,11 @@ export function guardedAgentConfig(base: ElevenLabs.conversationalAi.BodyCreateA
   } satisfies ElevenLabs.conversationalAi.BodyCreateAgentV1ConvaiAgentsCreatePost;
 }
 
-export function assertGuardedAgent(agent: { workflow?: { nodes?: object }; conversationConfig?: { agent?: { firstMessage?: string; maxConversationDurationMessage?: string; prompt?: { llm?: string; customLlm?: { url: string; requestHeaders?: Record<string, unknown> }; backupLlmConfig?: { preference: string }; builtInTools?: { voicemailDetection?: { params?: unknown } } } } } }, publicUrl: string) {
+export function assertGuardedAgent(agent: { workflow?: { nodes?: object }; conversationConfig?: { agent?: { firstMessage?: string; maxConversationDurationMessage?: string; prompt?: { tools?: { type: string; name?: string; params?: unknown }[]; llm?: string; customLlm?: { url: string; requestHeaders?: Record<string, unknown> }; backupLlmConfig?: { preference: string }; builtInTools?: { voicemailDetection?: { params?: unknown } } } } } }, publicUrl: string) {
   const config = agent.conversationConfig?.agent, prompt = config?.prompt;
   const expected = `${publicUrl.replace(/\/$/, "")}/voice/guard/v1`;
   const header = prompt?.customLlm?.requestHeaders?.["x-voice-guard-token"] as { secretId?: string } | undefined;
-  const voicemail = prompt?.builtInTools?.voicemailDetection?.params as { voicemailMessage?: string } | undefined;
+  const voicemail = (prompt?.builtInTools?.voicemailDetection?.params ?? prompt?.tools?.find(tool => tool.type === "system" && tool.name === "voicemail_detection")?.params) as { voicemailMessage?: string } | undefined;
   if (!singleAgentWorkflow(agent.workflow) || prompt?.llm !== "custom-llm" || prompt.customLlm?.url !== expected || prompt.backupLlmConfig?.preference !== "disabled" || !header?.secretId || voicemail?.voicemailMessage !== SPEECH.voicemail ||
     ![SPEECH.first, SPEECH.demoFirst].includes(config?.firstMessage as typeof SPEECH.first) || config?.maxConversationDurationMessage !== SPEECH.goodbye) {
     throw new Error("The agent is not configured for the blocking honesty guard. Prepare and apply the guarded agent configuration before dialing.");

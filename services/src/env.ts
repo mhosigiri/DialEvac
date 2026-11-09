@@ -46,6 +46,15 @@ export const env = {
     // The Photon number every call comes from.
     fromNumber: () => required("VOICE_FROM_NUMBER"),
   },
+  twilio: {
+    number: () => required("TWILIO_NUMBER"),
+    accountSid: () => required("TWILIO_ACCOUNT_SID"),
+    authToken: () => required("TWILIO_AUTH_TOKEN"),
+    phoneNumberId: () => required("ELEVENLABS_TWILIO_PHONE_NUMBER_ID"),
+    agentId: () => required("ELEVENLABS_TWILIO_AGENT_ID"),
+    launchToken: () => required("TWILIO_OUTREACH_TOKEN"),
+    webhookSecret: () => required("ELEVENLABS_TWILIO_WEBHOOK_SECRET"),
+  },
   elevenlabs: {
     apiKey: () => required("ELEVENLABS_API_KEY"),
     // Written to .env by `npm run setup:elevenlabs`.

@@ -1,0 +1,20 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { env } from "../src/env";
+import { elevenlabs, assertGuardedAgent } from "../src/elevenlabs";
+import { withVoiceDialogue, VOICE_DIALOGUE_RULES } from "../src/voice-dialogue";
+import { withVoiceSafety } from "../src/voice-safety";
+
+const api = elevenlabs().conversationalAi.agents;
+const id = env.twilio.agentId();
+const before = await api.get(id, {}, { timeoutInSeconds: 15, maxRetries: 0 });
+assertGuardedAgent(before, env.voice.publicUrl());
+const prompt = before.conversationConfig.agent?.prompt?.prompt;
+if (!prompt) throw new Error("The current guarded voice prompt is missing");
+const directory = new URL("../.spacetime/twilio/", import.meta.url);
+mkdirSync(directory, { recursive: true, mode: 0o700 });
+writeFileSync(new URL(`agent-before-dialogue-${Date.now()}.json`, directory), JSON.stringify(before), { mode: 0o600 });
+await api.update(id, { conversationConfig: { agent: { prompt: { prompt: withVoiceSafety(withVoiceDialogue(prompt)) } } } }, { timeoutInSeconds: 15, maxRetries: 0 });
+const after = await api.get(id, {}, { timeoutInSeconds: 15, maxRetries: 0 });
+assertGuardedAgent(after, env.voice.publicUrl());
+if (!after.conversationConfig.agent?.prompt?.prompt?.includes(VOICE_DIALOGUE_RULES)) throw new Error("The spoken dialogue configuration did not persist");
+console.log("Twilio spoken dialogue updated and guard configuration verified. No call placed.");

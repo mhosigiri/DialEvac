@@ -15,6 +15,7 @@ import { normalizeConversation, conversationFromWebhook } from "../src/call-inge
 import { analysisModel, analyzeTranscript } from "../src/claude-analysis";
 import { spoolConversation, drainSpool } from "../src/call-spool";
 import type { Contract } from "../src/contract";
+import { OutreachStore, twilioCampaign } from "../src/twilio-outreach";
 
 // This process receives/archives/analyzes calls. It never starts voice or messaging runners.
 const uri = SPACETIME_URI, database = SPACETIME_DEMO_DATABASE;
@@ -26,6 +27,8 @@ assert(token, "An existing granted demo service token is required");
 const directory = fileURLToPath(new URL("../.spacetime/call-inbox/", import.meta.url));
 mkdirSync(directory, { recursive: true, mode: 0o700 });
 const target = { uri, database };
+const outreachStore = new OutreachStore(`${directory}/twilio-outreach.sqlite`);
+const outreach = twilioCampaign(outreachStore);
 let connection: DbConnection | undefined;
 let stopping = false;
 const api = elevenlabs();
@@ -56,6 +59,13 @@ function openDatabase() {
 async function ingest(providerId: string, event?: unknown) {
   const c = connection;
   if (!c?.isActive) throw new Error("Database is unavailable");
+  if (outreachStore.hasProvider(providerId)) {
+    if (outreachStore.finishedProvider(providerId)) return;
+    const conversation = await api.conversationalAi.conversations.get(providerId, {}, { timeoutInSeconds: 10, maxRetries: 0 });
+    const turns = (conversation.transcript ?? []).flatMap(turn => typeof turn.message === "string" && ["user", "agent"].includes(turn.role) ? [{ speaker: turn.role === "agent" ? "agent" as const : "resident" as const, text: turn.message }] : []);
+    if (conversation.status === "done" || conversation.status === "failed") outreachStore.transcript(providerId, turns, conversation.status === "failed" ? "failed" : "completed");
+    return;
+  }
   const existing = c.db.callRecord.providerId.find(providerId);
   if (existing && existing.status !== "processing") return;
   let conversation;
@@ -82,8 +92,13 @@ async function ingest(providerId: string, event?: unknown) {
 async function reconcile() {
   let cursor: string | undefined;
   do {
-    const page = await api.conversationalAi.conversations.list({ agentId, pageSize: 100, cursor }, { timeoutInSeconds: 20, maxRetries: 1 });
+    const page = await api.conversationalAi.conversations.list({ pageSize: 100, cursor }, { timeoutInSeconds: 20, maxRetries: 1 });
     for (const call of page.conversations) {
+      if (outreachStore.hasProvider(call.conversationId)) {
+        if (!outreachStore.finishedProvider(call.conversationId)) await spoolConversation(directory, call.conversationId);
+        continue;
+      }
+      if (call.agentId !== agentId) continue;
       const stored = connection?.db.callRecord.providerId.find(call.conversationId);
       if (stored && stored.status !== "processing") continue;
       await spoolConversation(directory, call.conversationId);
@@ -114,19 +129,20 @@ async function analyzePending() {
   }
 }
 
-const server = createServer(db, { onWebhook: async event => {
+const server = createServer(outreachStore.withContract(db), { outreach: { ...outreach, token: env.twilio.launchToken }, onSpeech: (body, content) => outreachStore.speech(body, content), onWebhook: async event => {
+  if (outreachStore.webhook(event)) return;
   if (!["post_call_transcription", "call_initiation_failure"].includes(event.type)) return;
   const id = event.data.conversation_id;
   if (!id) throw new Error("Conversation id missing");
   await spoolConversation(directory, id, event);
-}, capabilities: { transcriptIngestion: true, claudeAnalysis: true, outboundEnabled: false }, readiness: () => {
+}, capabilities: { transcriptIngestion: true, claudeAnalysis: true, outboundEnabled: true, outboundProvider: "twilio", outreachContacts: 3 }, readiness: () => {
   let durableStorage = false;
   try { accessSync(directory, constants.W_OK); durableStorage = true; } catch { /* fail readiness */ }
   const checks = { database: Boolean(connection?.isActive), durableStorage, analysisConfigured: Boolean(process.env.ANTHROPIC_API_KEY), stopping: !stopping };
   return { ready: Object.values(checks).every(Boolean), checks };
 } });
 
-if (!process.argv.includes("--once")) server.listen(env.voice.port, () => console.log(`[call-inbox] listening on :${env.voice.port}; ${database}; outbound disabled`));
+if (!process.argv.includes("--once")) server.listen(env.voice.port, () => console.log(`[call-inbox] listening on :${env.voice.port}; ${database}; Twilio outreach available through authenticated launch`));
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => { stopping = true; server.close(); connection?.disconnect(); });
 let nextReconcile = 0;
 do {

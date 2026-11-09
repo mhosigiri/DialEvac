@@ -145,9 +145,35 @@ async function readBody(req: http.IncomingMessage, limit = Infinity) {
 
 export type Readiness = { ready: boolean; checks: Record<string, boolean> };
 
-export function createServer(db: Contract, options: { onWebhook?: (event: WebhookEvent) => Promise<void>; capabilities?: Record<string, unknown>; readiness?: () => Readiness; proposeTurn?: TurnProposer } = {}) {
+export function createServer(db: Contract, options: { onWebhook?: (event: WebhookEvent) => Promise<void>; capabilities?: Record<string, unknown>; readiness?: () => Readiness; proposeTurn?: TurnProposer; onSpeech?: (body: GuardChat, content: string | null | undefined) => void; outreach?: { token: () => string; status: () => unknown; launch: (input: unknown) => Promise<unknown> } } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (url.pathname === "/api/outreach" || url.pathname === "/api/outreach/launch") {
+      const outreach = options.outreach;
+      if (!outreach) return void res.writeHead(503).end(JSON.stringify({ error: "Twilio outreach service is not configured" }));
+      let expected: string;
+      try { expected = outreach.token(); } catch { return void res.writeHead(503).end(); }
+      const supplied = req.headers["x-outreach-token"];
+      if (!authenticGuardHeader(expected, typeof supplied === "string" ? supplied : undefined)) return void res.writeHead(401).end();
+      const origin = req.headers.origin;
+      if (origin) {
+        let local = false;
+        try { const source = new URL(origin); local = ["localhost", "127.0.0.1", "[::1]"].includes(source.hostname) && ["3001", "3002"].includes(source.port); } catch { /* reject malformed origins */ }
+        if (!local) return void res.writeHead(403).end();
+      }
+      const respond = (status: number, value: unknown) => res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(value));
+      if (req.method === "GET" && url.pathname === "/api/outreach") return void respond(200, { batch: outreach.status() ?? null });
+      if (req.method !== "POST" || url.pathname !== "/api/outreach/launch") return void res.writeHead(405).end();
+      if (!req.headers["content-type"]?.startsWith("application/json") || req.headers["x-outreach-request"] !== "launch") return void res.writeHead(400).end();
+      let input: unknown;
+      try { input = JSON.parse(await readBody(req, 4096)); } catch { return void respond(400, { error: "Invalid launch request" }); }
+      try { return void respond(200, { batch: await outreach.launch(input) }); }
+      catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to launch outreach";
+        const safe = /Invalid |already|active|Outreach requires|guard|Configured Twilio|Blocking voice/.test(message) ? message : "Twilio outreach is unavailable. Check the voice service configuration.";
+        return void respond(409, { error: safe });
+      }
+    }
     if (req.method === "GET" && url.pathname === "/health") return void res.writeHead(200).end("ok");
     if (req.method === "GET" && url.pathname === "/ready") {
       const state = options.readiness?.() ?? { ready: false, checks: { readinessConfigured: false } };
@@ -163,12 +189,17 @@ export function createServer(db: Contract, options: { onWebhook?: (event: Webhoo
         let transfers: string[] = [];
         try { transfers = [demoContacts(env.allowlist).dispatcher]; } catch { /* No configured human destination. */ }
         const turn = await guardedCompletion(db, body, env.elevenlabs.webhookSecret(), options.proposeTurn ?? proposeVoiceTurn, transfers);
+        options.onSpeech?.(body, turn.content);
         const base = { id: "guarded-turn", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "blocking-template-gate" };
         const delta = { role: "assistant", content: turn.content, ...(turn.tool_calls ? { tool_calls: turn.tool_calls.map((tool, index) => ({ index, ...tool })) } : {}) };
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
         res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
         res.end(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: turn.tool_calls ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`);
-      } catch { res.writeHead(503).end(); }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message.replace(/\+\d{8,15}/g, "[phone]").slice(0, 180) : "unknown error";
+        console.error(`[voice] Guarded turn unavailable: ${reason}`);
+        res.writeHead(503).end();
+      }
       return;
     }
     if (req.method === "POST" && ["/elevenlabs/assessment", "/elevenlabs/handoff"].includes(url.pathname)) {
@@ -186,10 +217,10 @@ export function createServer(db: Contract, options: { onWebhook?: (event: Webhoo
         () => void res.writeHead(503).end(),
       );
     }
-    if (req.method !== "POST" || url.pathname !== "/elevenlabs/webhook") return void res.writeHead(404).end();
+    if (req.method !== "POST" || !["/elevenlabs/webhook", "/elevenlabs/twilio-webhook"].includes(url.pathname)) return void res.writeHead(404).end();
     let raw: string;
     try { raw = await readBody(req, 2_000_000); } catch { return void res.writeHead(413).end(); }
-    const event = await verifiedEvent(raw, req.headers["elevenlabs-signature"] as string | undefined, env.elevenlabs.webhookSecret());
+    const event = await verifiedEvent(raw, req.headers["elevenlabs-signature"] as string | undefined, (url.pathname === "/elevenlabs/twilio-webhook" ? env.twilio.webhookSecret() : env.elevenlabs.webhookSecret()));
     if (!event) return void res.writeHead(401).end();
     return (options.onWebhook ? options.onWebhook(event) : handleElevenlabsEvent(db, event)).then(
       () => void res.writeHead(200).end(),
